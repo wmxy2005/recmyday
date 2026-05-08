@@ -17,7 +17,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#F7F7F2"
-      }
+      },
+      "package": "com.wmxy2005.recmyday"
     },
     "web": {
       "bundler": "metro",
@@ -34,6 +35,17 @@
         }
       ],
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "headers": {
+          "Cross-Origin-Embedder-Policy": "credentialless",
+          "Cross-Origin-Opener-Policy": "same-origin"
+        }
+      },
+      "eas": {
+        "projectId": "f89a8c32-33b2-4e35-b5aa-47fec4a82895"
+      }
+    }
   }
 }

@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -97,6 +98,15 @@ export default function StatsScreen() {
   }, [records]);
 
   const cells = useMemo(() => getMonthCalendarCells(monthDate), [monthDate]);
+  const calendarWeeks = useMemo(() => {
+    const weeks = [];
+
+    for (let index = 0; index < cells.length; index += 7) {
+      weeks.push(cells.slice(index, index + 7));
+    }
+
+    return weeks;
+  }, [cells]);
   const todayKey = useMemo(() => formatDayKey(new Date()), []);
   const selectedRecord = selectedDayKey ? recordMap[selectedDayKey] : undefined;
 
@@ -176,54 +186,71 @@ export default function StatsScreen() {
         </View>
 
         <View style={styles.calendarGrid}>
-          {cells.map((cell, index) => {
-            const record = cell.dayKey ? recordMap[cell.dayKey] : undefined;
-            const hasRecord = Boolean(record);
-            const isWeekend = index % 7 >= 5;
-            const isToday = cell.dayKey === todayKey;
+          {calendarWeeks.map((week, weekIndex) => (
+            <View key={`week-${weekIndex}`} style={styles.calendarWeek}>
+              {week.map((cell, dayIndex) => {
+                const record = cell.dayKey ? recordMap[cell.dayKey] : undefined;
+                const hasRecord = Boolean(record);
+                const isWeekend = dayIndex >= 5;
+                const isToday = cell.dayKey === todayKey;
 
-            return (
-              <Pressable
-                key={cell.key}
-                accessibilityRole={cell.day ? 'button' : undefined}
-                disabled={!cell.dayKey}
-                onPress={() => {
-                  if (cell.dayKey) {
-                    handleSelectDay(cell.dayKey);
-                  }
-                }}
-                style={[
-                  styles.dayCell,
-                  !cell.day && styles.emptyCell,
-                  hasRecord && styles.dayCellActive,
-                  cell.day && isWeekend ? styles.weekendCell : null,
-                  isToday && styles.todayCell,
-                  selectedDayKey !== null &&
-                    selectedDayKey === cell.dayKey &&
-                    styles.dayCellSelected,
-                ]}
-              >
-                {cell.day ? (
-                  <>
-                    <Text style={[styles.dayNumber, hasRecord && styles.dayNumberActive]}>
-                      {cell.day}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      style={[styles.dayMinutes, hasRecord && styles.dayMinutesActive]}
-                    >
-                      {record ? formatDuration(record.minutes_since_start, recordUnit) : ''}
-                    </Text>
-                  </>
-                ) : null}
-              </Pressable>
-            );
-          })}
+                return (
+                  <Pressable
+                    key={cell.key}
+                    accessibilityRole={cell.day ? 'button' : undefined}
+                    disabled={!cell.dayKey}
+                    onPress={() => {
+                      if (cell.dayKey) {
+                        handleSelectDay(cell.dayKey);
+                      }
+                    }}
+                    style={[
+                      styles.dayCell,
+                      !cell.day && styles.emptyCell,
+                      hasRecord && styles.dayCellActive,
+                      cell.day && isWeekend ? styles.weekendCell : null,
+                      isToday && styles.todayCell,
+                      selectedDayKey !== null &&
+                        selectedDayKey === cell.dayKey &&
+                        styles.dayCellSelected,
+                    ]}
+                  >
+                    {cell.day ? (
+                      <>
+                        <Text style={[styles.dayNumber, hasRecord && styles.dayNumberActive]}>
+                          {cell.day}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          style={[styles.dayMinutes, hasRecord && styles.dayMinutesActive]}
+                        >
+                          {record ? formatDuration(record.minutes_since_start, recordUnit) : ''}
+                        </Text>
+                      </>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
         </View>
 
-        {selectedDayKey ? (
-          <View style={styles.editorPanel}>
+        <Modal
+          animationType="fade"
+          onRequestClose={() => setSelectedDayKey(null)}
+          transparent
+          visible={selectedDayKey !== null}
+        >
+          <View style={styles.modalOverlay}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setSelectedDayKey(null)}
+              style={styles.modalBackdrop}
+            />
+
+            {selectedDayKey ? (
+              <View style={styles.editorPanel}>
             <View style={styles.editorHeader}>
               <View style={styles.editorTitleRow}>
                 <Text style={styles.editorTitle}>{formatDayLabel(selectedDayKey)}</Text>
@@ -288,8 +315,10 @@ export default function StatsScreen() {
                 <Text style={styles.saveText}>{isSaving ? '保存中' : '保存'}</Text>
               </Pressable>
             </View>
+              </View>
+            ) : null}
           </View>
-        ) : null}
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -348,6 +377,7 @@ const styles = StyleSheet.create({
   },
   weekHeader: {
     flexDirection: 'row',
+    gap: spacing.xs,
     marginBottom: spacing.sm,
   },
   weekday: {
@@ -358,12 +388,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   calendarGrid: {
+    gap: spacing.xs,
+  },
+  calendarWeek: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.xs,
   },
   dayCell: {
-    width: `${(100 - 6 * 1.2) / 7}%`,
+    flex: 1,
     aspectRatio: 0.92,
     minHeight: 58,
     padding: spacing.xs,
@@ -408,8 +440,19 @@ const styles = StyleSheet.create({
   dayMinutesActive: {
     color: colors.accent,
   },
+  modalOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+    backgroundColor: 'rgba(23, 33, 29, 0.38)',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
   editorPanel: {
-    marginTop: spacing.xl,
+    width: '100%',
+    maxWidth: 420,
     padding: spacing.lg,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
@@ -477,6 +520,7 @@ const styles = StyleSheet.create({
   minutesInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    width: '100%',
     gap: spacing.sm,
   },
   minutesUnit: {

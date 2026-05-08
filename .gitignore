@@ -14,3 +14,4 @@ yarn-error.*
 .env*.local
 
 .vs
+android/
