@@ -9,7 +9,7 @@ export const colors = {
   primaryDark: '#15583F',
   accent: '#D66A2C',
   info: '#2F6F9F',
-  danger: '#B94A48',
+  danger: '#E91E63',
 };
 
 export const spacing = {

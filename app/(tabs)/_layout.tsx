@@ -25,15 +25,16 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
+        animation: 'shift',
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
-          height: 68,
-          paddingBottom: 8,
-          paddingTop: 8,
+          height: 56,
+          paddingBottom: 0,
+          paddingTop: 0,
         },
         tabBarLabelStyle: {
           fontSize: 12,

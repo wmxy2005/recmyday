@@ -5,7 +5,6 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   type DayRecord,
+  deleteRecordByDayKey,
   getMonthRecords,
   getMonthTotalMinutes,
   getRecordUnit,
@@ -29,6 +29,7 @@ import {
   formatDayKey,
   formatDuration,
   formatMonthTitle,
+  formatWeekdayLabel,
   getMonthCalendarCells,
   type RecordUnit,
 } from '@/utils/date';
@@ -63,6 +64,7 @@ export default function StatsScreen() {
   const [editedMinutes, setEditedMinutes] = useState('0');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [showEditorActions, setShowEditorActions] = useState(false);
   const hasLoadedRef = useRef(false);
 
   const loadData = useCallback(async (showLoading = false) => {
@@ -113,16 +115,19 @@ export default function StatsScreen() {
   const handleSelectDay = (dayKey: string) => {
     if (selectedDayKey === dayKey) {
       setSelectedDayKey(null);
+      setShowEditorActions(false);
       return;
     }
 
     const record = recordMap[dayKey];
     setSelectedDayKey(dayKey);
     setEditedMinutes(String(record?.minutes_since_start ?? 0));
+    setShowEditorActions(false);
   };
 
   const handleChangeMonth = (offset: number) => {
     setSelectedDayKey(null);
+    setShowEditorActions(false);
     setMonthDate((current) => addMonths(current, offset));
   };
 
@@ -142,12 +147,28 @@ export default function StatsScreen() {
     await upsertRecordMinutes(db, selectedDayKey, parsedMinutes);
     await loadData();
     setEditedMinutes(String(parsedMinutes));
+    setSelectedDayKey(null);
+    setShowEditorActions(false);
+    setIsSaving(false);
+  };
+
+  const handleClearSelectedDay = async () => {
+    if (!selectedDayKey) {
+      return;
+    }
+
+    setIsSaving(true);
+    await deleteRecordByDayKey(db, selectedDayKey);
+    await loadData();
+    setEditedMinutes('0');
+    setSelectedDayKey(null);
+    setShowEditorActions(false);
     setIsSaving(false);
   };
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
@@ -207,7 +228,6 @@ export default function StatsScreen() {
                     style={[
                       styles.dayCell,
                       !cell.day && styles.emptyCell,
-                      hasRecord && styles.dayCellActive,
                       cell.day && isWeekend ? styles.weekendCell : null,
                       isToday && styles.todayCell,
                       selectedDayKey !== null &&
@@ -217,13 +237,23 @@ export default function StatsScreen() {
                   >
                     {cell.day ? (
                       <>
-                        <Text style={[styles.dayNumber, hasRecord && styles.dayNumberActive]}>
+                        <Text
+                          style={[
+                            styles.dayNumber,
+                            hasRecord && styles.dayNumberActive,
+                            isToday && styles.todayDayNumber,
+                          ]}
+                        >
                           {cell.day}
                         </Text>
                         <Text
                           numberOfLines={1}
                           adjustsFontSizeToFit
-                          style={[styles.dayMinutes, hasRecord && styles.dayMinutesActive]}
+                          style={[
+                            styles.dayMinutes,
+                            hasRecord && styles.dayMinutesActive,
+                            isToday && styles.todayDayMinutes,
+                          ]}
                         >
                           {record ? formatDuration(record.minutes_since_start, recordUnit) : ''}
                         </Text>
@@ -236,45 +266,64 @@ export default function StatsScreen() {
           ))}
         </View>
 
-        <Modal
-          animationType="fade"
-          onRequestClose={() => setSelectedDayKey(null)}
-          transparent
-          visible={selectedDayKey !== null}
-        >
-          <View style={styles.modalOverlay}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSelectedDayKey(null)}
-              style={styles.modalBackdrop}
-            />
-
-            {selectedDayKey ? (
-              <View style={styles.editorPanel}>
+        {selectedDayKey ? (
+          <View style={styles.editorPanel}>
             <View style={styles.editorHeader}>
               <View style={styles.editorTitleRow}>
                 <Text style={styles.editorTitle}>{formatDayLabel(selectedDayKey)}</Text>
+                <Text style={styles.weekdayPill}>{formatWeekdayLabel(selectedDayKey)}</Text>
                 <Text style={styles.editorSubtitle}>
                   {selectedRecord
                     ? formatDuration(selectedRecord.minutes_since_start, recordUnit)
                     : '暂无记录'}
                 </Text>
               </View>
-              <Ionicons color={colors.primary} name="create-outline" size={24} />
+              <Pressable
+                accessibilityLabel={showEditorActions ? '隐藏编辑操作' : '显示编辑操作'}
+                accessibilityRole="button"
+                onPress={() => setShowEditorActions((current) => !current)}
+                style={styles.editButton}
+              >
+                <Ionicons
+                  color={colors.primary}
+                  name={showEditorActions ? 'close-outline' : 'create-outline'}
+                  size={24}
+                />
+              </Pressable>
             </View>
 
             <View style={styles.detailGrid}>
               <View style={styles.detailItem}>
                 <View style={styles.minutesInputRow}>
                   <TextInput
+                    editable={showEditorActions && !isSaving}
                     keyboardType="number-pad"
                     onChangeText={(value) => setEditedMinutes(cleanMinutesInput(value))}
                     placeholder="0"
                     placeholderTextColor={colors.muted}
-                    style={styles.minutesInput}
+                    selectTextOnFocus={showEditorActions}
+                    style={[
+                      styles.minutesInput,
+                      !showEditorActions && styles.minutesInputDisabled,
+                    ]}
                     value={editedMinutes}
                   />
                   <Text style={styles.minutesUnit}>分</Text>
+                  {showEditorActions ? (
+                    <Pressable
+                      accessibilityLabel="清除记录"
+                      accessibilityRole="button"
+                      disabled={isSaving}
+                      onPress={handleClearSelectedDay}
+                      style={({ pressed }) => [
+                        styles.clearIconButton,
+                        pressed && styles.clearIconButtonPressed,
+                        isSaving && styles.saveButtonDisabled,
+                      ]}
+                    >
+                      <Ionicons color={colors.surface} name="trash-outline" size={20} />
+                    </Pressable>
+                  ) : null}
                 </View>
               </View>
               <View style={styles.timeInfoRow}>
@@ -293,32 +342,24 @@ export default function StatsScreen() {
               </View>
             </View>
 
-            <View style={styles.editorActions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSaving}
-                onPress={() => setSelectedDayKey(null)}
-                style={styles.cancelButton}
-              >
-                <Text style={styles.cancelText}>取消</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSaving}
-                onPress={handleSaveSelectedDay}
-                style={({ pressed }) => [
-                  styles.saveButton,
-                  pressed && styles.saveButtonPressed,
-                  isSaving && styles.saveButtonDisabled,
-                ]}
-              >
-                <Text style={styles.saveText}>{isSaving ? '保存中' : '保存'}</Text>
-              </Pressable>
-            </View>
+            {showEditorActions ? (
+              <View style={styles.editorActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isSaving}
+                  onPress={handleSaveSelectedDay}
+                  style={({ pressed }) => [
+                    styles.saveButton,
+                    pressed && styles.saveButtonPressed,
+                    isSaving && styles.saveButtonDisabled,
+                  ]}
+                >
+                  <Text style={styles.saveText}>{isSaving ? '保存中' : '保存'}</Text>
+                </Pressable>
               </View>
             ) : null}
           </View>
-        </Modal>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -330,19 +371,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    padding: spacing.lg,
-    paddingBottom: 20,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   monthButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
@@ -351,72 +393,68 @@ const styles = StyleSheet.create({
   },
   monthTitle: {
     color: colors.text,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
   },
   summary: {
-    minHeight: 122,
+    minHeight: 72,
     justifyContent: 'center',
-    padding: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
   },
   summaryLabel: {
     color: colors.primary,
     fontSize: 14,
     fontWeight: '700',
-    marginBottom: spacing.sm,
+    marginBottom: 2,
   },
   summaryValue: {
     color: colors.text,
-    fontSize: 34,
+    fontSize: 28,
     fontWeight: '800',
   },
   weekHeader: {
     flexDirection: 'row',
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
+    gap: 3,
+    marginBottom: spacing.xs,
   },
   weekday: {
     flex: 1,
     color: colors.muted,
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   calendarGrid: {
-    gap: spacing.xs,
+    gap: 3,
   },
   calendarWeek: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 3,
   },
   dayCell: {
     flex: 1,
     aspectRatio: 0.92,
-    minHeight: 58,
     padding: spacing.xs,
     borderRadius: radius.sm,
     backgroundColor: colors.surface,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
     justifyContent: 'space-between',
   },
-  dayCellActive: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.primary,
-  },
   weekendCell: {
-    backgroundColor: '#FFF3E8',
+    backgroundColor: '#ecf6f7',
   },
   todayCell: {
-    backgroundColor: '#E6F0FF',
+    backgroundColor: colors.danger,
   },
   dayCellSelected: {
-    borderColor: colors.accent,
+    borderColor: colors.info,
     borderWidth: 2,
   },
   emptyCell: {
@@ -425,56 +463,70 @@ const styles = StyleSheet.create({
   },
   dayNumber: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
+    textAlign: 'center',
   },
   dayNumberActive: {
     color: colors.primaryDark,
   },
+  todayDayNumber: {
+    color: colors.surface,
+  },
   dayMinutes: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    textAlign: 'right',
+    textAlign: 'center',
   },
   dayMinutesActive: {
-    color: colors.accent,
+    color: colors.danger,
   },
-  modalOverlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.lg,
-    backgroundColor: 'rgba(23, 33, 29, 0.38)',
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+  todayDayMinutes: {
+    color: colors.surface,
   },
   editorPanel: {
     width: '100%',
-    maxWidth: 420,
-    padding: spacing.lg,
+    padding: spacing.md,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
+    marginTop: spacing.md,
   },
   editorHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   editorTitleRow: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  editButton: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   editorTitle: {
     color: colors.text,
-    fontSize: 19,
+    fontSize: 17,
     fontWeight: '800',
+  },
+  weekdayPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceAlt,
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: '800',
+    overflow: 'hidden',
   },
   editorSubtitle: {
     color: colors.muted,
@@ -482,7 +534,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   detailGrid: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   detailItem: {
     gap: spacing.xs,
@@ -497,25 +549,29 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   detailValue: {
     color: colors.text,
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
   },
   minutesInput: {
     flex: 1,
-    height: 48,
+    height: 40,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surfaceAlt,
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
+  },
+  minutesInputDisabled: {
+    color: colors.muted,
+    opacity: 0.8,
   },
   minutesInputRow: {
     flexDirection: 'row',
@@ -528,29 +584,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  editorActions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
-  cancelButton: {
-    flex: 1,
-    height: 48,
+  clearIconButton: {
+    width: 40,
+    height: 40,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.danger,
   },
-  cancelText: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '800',
+  clearIconButtonPressed: {
+    backgroundColor: '#963634',
+  },
+  editorActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
   saveButton: {
     flex: 1,
-    height: 48,
+    height: 42,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',

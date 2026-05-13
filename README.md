@@ -9,8 +9,8 @@
 - Expo Router bottom tabs
 - expo-sqlite
 - TypeScript
-- pnpm
 - npm
+- pnpm
 
 ## 功能
 
@@ -48,13 +48,14 @@ npm lint
 app/
   _layout.tsx
   (tabs)/
-    _layout.tsx
-    index.tsx
-    stats.tsx
-    settings.tsx
+    _layout.tsx         
+    index.tsx         # 主页
+    stats.tsx         # 统计页
+    settings.tsx      # 设定页
 src/
   data/database.ts
   theme.ts
   utils/date.ts
 ```
+
 

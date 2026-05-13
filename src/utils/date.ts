@@ -7,6 +7,7 @@ export type CalendarCell = {
 export type RecordUnit = 'hours' | 'minutes';
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
+const weekdayLabels = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
 export function formatDayKey(date: Date) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
@@ -40,6 +41,17 @@ export function formatMonthTitle(date: Date) {
 export function formatDayLabel(dayKey: string) {
   const [, month, day] = dayKey.split('-');
   return `${Number(month)}月${Number(day)}日`;
+}
+
+export function formatWeekdayLabel(dayKey: string) {
+  const [year, month, day] = dayKey.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+
+  return weekdayLabels[date.getDay()];
+}
+
+export function formatDayWithWeekdayLabel(dayKey: string) {
+  return `${formatDayLabel(dayKey)} ${formatWeekdayLabel(dayKey)}`;
 }
 
 export function formatTimeFromMinutes(totalMinutes: number) {

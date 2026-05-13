@@ -232,6 +232,10 @@ export async function getRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
   return db.getFirstAsync<DayRecord>('SELECT * FROM day_records WHERE day_key = ?', dayKey);
 }
 
+export async function deleteRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
+  await db.runAsync('DELETE FROM day_records WHERE day_key = ?', dayKey);
+}
+
 export async function getCurrentDayRecord(db: SQLiteDatabase, date = new Date()) {
   const startTimeMinutes = await getStartTimeMinutes(db);
   const dayKey = getLogicalDayKey(date, startTimeMinutes);
