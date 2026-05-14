@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import Animated, {
+import {
   Easing,
   runOnJS,
   useAnimatedStyle,
@@ -20,6 +20,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { RecordButton } from '@/components/RecordButton';
 import {
   type DayRecord,
   getCurrentDayKey,
@@ -39,6 +40,11 @@ import {
   type RecordUnit,
 } from '@/utils/date';
 
+function getIsBeforeStartTime(startTimeMinutes: number) {
+  const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  return currentMinutes < startTimeMinutes;
+}
+
 export default function HomeScreen() {
   const { t } = useTranslation();
   const db = useSQLiteContext();
@@ -48,7 +54,7 @@ export default function HomeScreen() {
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [recentRecordLimit, setRecentRecordLimit] = useState(5);
-  const [now, setNow] = useState(() => new Date());
+  const [isBeforeStartTime, setIsBeforeStartTime] = useState(() => getIsBeforeStartTime(0));
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [isHidingRecordButton, setIsHidingRecordButton] = useState(false);
@@ -111,7 +117,9 @@ export default function HomeScreen() {
     setRecentRecordLimit(limit);
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
-    setShowRecordButton(!currentRecord);
+    if (!currentRecord) {
+      setShowRecordButton(true);
+    }
     setRecords(recentRecords);
     setIsLoading(false);
   }, [db]);
@@ -125,12 +133,15 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
+    setIsBeforeStartTime(getIsBeforeStartTime(startTimeMinutes));
+
     const timer = setInterval(() => {
-      setNow(new Date());
+      const next = getIsBeforeStartTime(startTimeMinutes);
+      setIsBeforeStartTime((current) => (current === next ? current : next));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [startTimeMinutes]);
 
   const previousRecords = useMemo(
     () =>
@@ -140,8 +151,6 @@ export default function HomeScreen() {
     [currentDayKey, recentRecordLimit, records],
   );
 
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const isBeforeStartTime = currentMinutes < startTimeMinutes;
   const shouldShowRecordButtonArea =
     !isBeforeStartTime && (!todayRecord || showRecordButton);
 
@@ -201,6 +210,7 @@ export default function HomeScreen() {
 
     try {
       await upsertCurrentRecord(db);
+      setShowRecordButton(false);
       await loadData();
     } finally {
       setIsRecording(false);
@@ -215,11 +225,6 @@ export default function HomeScreen() {
     setShowRecordButton((current) => !current);
   };
 
-  const currentTime = now.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
   const isTodayPanelSelected = Boolean(todayRecord && showRecordButton);
   const hasNoTodayRecord = !isLoading && !todayRecord;
   const isRecordButtonRecordedAppearance =
@@ -353,31 +358,14 @@ export default function HomeScreen() {
 
       {recordButtonMounted ? (
         <View pointerEvents="box-none" style={styles.actionArea}>
-          <Animated.View
+          <RecordButton
+            animatedStyle={recordButtonAnimatedStyle}
+            disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
+            isRecordedAppearance={isRecordButtonRecordedAppearance}
+            isRecording={isRecording}
+            onPress={handleRecord}
             pointerEvents={shouldShowRecordButtonArea && !isHidingRecordButton ? 'auto' : 'none'}
-            style={recordButtonAnimatedStyle}
-          >
-            <Pressable
-              accessibilityRole="button"
-              disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
-              onPress={handleRecord}
-              style={({ pressed }) => [
-                styles.recordButton,
-                isRecordButtonRecordedAppearance && styles.recordButtonRecorded,
-                pressed &&
-                  !isRecording &&
-                  (isRecordButtonRecordedAppearance
-                    ? styles.recordButtonRecordedPressed
-                    : styles.recordButtonPressed),
-                isRecording && styles.recordButtonDisabled,
-              ]}
-            >
-              <Ionicons color={colors.surface} name="radio-button-on" size={24} />
-              <View style={styles.recordButtonTextGroup}>
-                <Text style={styles.recordButtonTime}>{currentTime}</Text>
-              </View>
-            </Pressable>
-          </Animated.View>
+          />
         </View>
       ) : null}
     </SafeAreaView>
@@ -556,37 +544,5 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 18,
     alignItems: 'center',
-  },
-  recordButton: {
-    minWidth: 152,
-    height: 64,
-    paddingHorizontal: spacing.lg,
-    borderRadius: 32,
-    backgroundColor: colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  recordButtonPressed: {
-    backgroundColor: colors.primaryDark,
-  },
-  recordButtonRecorded: {
-    backgroundColor: colors.danger,
-  },
-  recordButtonRecordedPressed: {
-    backgroundColor: '#963634',
-  },
-  recordButtonDisabled: {
-    opacity: 0.7,
-  },
-  recordButtonTextGroup: {
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
-  recordButtonTime: {
-    color: colors.surface,
-    fontSize: 18,
-    fontWeight: '800',
   },
 });

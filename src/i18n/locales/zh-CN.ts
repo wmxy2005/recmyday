@@ -26,6 +26,7 @@ export default {
     save: '保存',
     invalidMinutesTitle: '分钟数无效',
     invalidMinutesMessage: '请输入大于或等于 0 的整数。',
+    goToCurrentMonth: '回到当月',
     weekdaysShort: ['一', '二', '三', '四', '五', '六', '日'],
   },
   settings: {

@@ -125,6 +125,12 @@ export default function StatsScreen() {
   }, [records]);
 
   const cells = useMemo(() => getMonthCalendarCells(monthDate), [monthDate]);
+  const isCurrentMonth = useMemo(() => {
+    const now = new Date();
+    return (
+      monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth()
+    );
+  }, [monthDate]);
   const calendarWeeks = useMemo(() => {
     const weeks = [];
 
@@ -154,6 +160,12 @@ export default function StatsScreen() {
     setSelectedDayKey(null);
     setShowEditorActions(false);
     setMonthDate((current) => addMonths(current, offset));
+  };
+
+  const handleGoToCurrentMonth = () => {
+    setSelectedDayKey(null);
+    setShowEditorActions(false);
+    setMonthDate(new Date());
   };
 
   const handleSaveSelectedDay = async () => {
@@ -213,7 +225,27 @@ export default function StatsScreen() {
             <Ionicons color={colors.text} name="chevron-back" size={22} />
           </Pressable>
 
-          <Text style={styles.monthTitle}>{formatMonthTitle(monthDate)}</Text>
+          <View style={styles.monthTitleGroup}>
+            {!isCurrentMonth ? (
+              <Pressable
+                accessibilityLabel={t('stats.goToCurrentMonth')}
+                accessibilityRole="button"
+                onPress={handleGoToCurrentMonth}
+                style={({ pressed }) => [
+                  styles.currentMonthButton,
+                  pressed && styles.currentMonthButtonPressed,
+                ]}
+              >
+                <Ionicons
+                  color={colors.primary}
+                  name="navigate-circle"
+                  size={22}
+                  style={styles.currentMonthIcon}
+                />
+              </Pressable>
+            ) : null}
+            <Text style={styles.monthTitle}>{formatMonthTitle(monthDate)}</Text>
+          </View>
 
           <Pressable
             accessibilityRole="button"
@@ -436,10 +468,34 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderWidth: 1,
   },
+  monthTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  currentMonthButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    alignSelf: 'center',
+  },
+  currentMonthButtonPressed: {
+    opacity: 0.6,
+  },
+  currentMonthIcon: {
+    height: 22,
+    lineHeight: 22,
+    textAlignVertical: 'center',
+  },
   monthTitle: {
     color: colors.text,
     fontSize: 20,
     fontWeight: '800',
+    lineHeight: 24,
+    includeFontPadding: false,
   },
   summary: {
     minHeight: 72,
@@ -450,7 +506,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   summaryLabel: {
     color: colors.primary,

@@ -26,6 +26,7 @@ export default {
     save: 'Save',
     invalidMinutesTitle: 'Invalid minutes',
     invalidMinutesMessage: 'Enter an integer greater than or equal to 0.',
+    goToCurrentMonth: 'Go to current month',
     weekdaysShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
   },
   settings: {
