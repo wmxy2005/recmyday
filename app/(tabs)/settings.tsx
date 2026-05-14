@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -28,6 +29,7 @@ function cleanNumericInput(value: string, maxLength: number) {
 }
 
 export default function SettingsScreen() {
+  const { t } = useTranslation();
   const db = useSQLiteContext();
   const [hour, setHour] = useState('00');
   const [minute, setMinute] = useState('00');
@@ -68,14 +70,17 @@ export default function SettingsScreen() {
       parsedMinute < 0 ||
       parsedMinute > 59
     ) {
-      Alert.alert('时间无效', '请输入 00:00 到 23:59 之间的时间。');
+      Alert.alert(t('settings.invalidTimeTitle'), t('settings.invalidTimeMessage'));
       return;
     }
 
     const parsedRecentRecordLimit = Number(recentRecordLimit);
 
     if (!Number.isInteger(parsedRecentRecordLimit) || parsedRecentRecordLimit < 1) {
-      Alert.alert('最近记录无效', '请输入大于或等于 1 的整数。');
+      Alert.alert(
+        t('settings.invalidRecentRecordsTitle'),
+        t('settings.invalidRecentRecordsMessage'),
+      );
       return;
     }
 
@@ -97,12 +102,14 @@ export default function SettingsScreen() {
     <SafeAreaView edges={['top']} style={styles.screen}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>设定</Text>
-          <Text style={styles.subtitle}>当前起始时间 {formatTimeFromMinutes(savedMinutes)}</Text>
+          <Text style={styles.title}>{t('settings.title')}</Text>
+          <Text style={styles.subtitle}>
+            {t('settings.currentStartTime', { time: formatTimeFromMinutes(savedMinutes) })}
+          </Text>
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.label}>一天开始</Text>
+          <Text style={styles.label}>{t('settings.dayStart')}</Text>
           <View style={styles.timeRow}>
             <TextInput
               keyboardType="number-pad"
@@ -129,11 +136,11 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <Text style={styles.label}>记录单位</Text>
+          <Text style={styles.label}>{t('settings.recordUnit')}</Text>
           <View style={styles.segmented}>
             {[
-              { label: '小时', value: 'hours' },
-              { label: '分钟', value: 'minutes' },
+              { label: t('settings.hours'), value: 'hours' },
+              { label: t('settings.minutes'), value: 'minutes' },
             ].map((item) => {
               const isActive = recordUnit === item.value;
 
@@ -152,7 +159,7 @@ export default function SettingsScreen() {
             })}
           </View>
 
-          <Text style={styles.label}>最近记录</Text>
+          <Text style={styles.label}>{t('settings.recentRecords')}</Text>
           <TextInput
             keyboardType="number-pad"
             onChangeText={(value) => setRecentRecordLimit(cleanNumericInput(value, 2))}
@@ -173,7 +180,9 @@ export default function SettingsScreen() {
             ]}
           >
             <Ionicons color={colors.surface} name="save-outline" size={20} />
-            <Text style={styles.saveText}>{isSaving ? '保存中' : '保存'}</Text>
+            <Text style={styles.saveText}>
+              {isSaving ? t('settings.saving') : t('settings.save')}
+            </Text>
           </Pressable>
         </View>
       </View>

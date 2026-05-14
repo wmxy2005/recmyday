@@ -10,6 +10,14 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -32,6 +40,7 @@ import {
 } from '@/utils/date';
 
 export default function HomeScreen() {
+  const { t } = useTranslation();
   const db = useSQLiteContext();
   const [currentDayKey, setCurrentDayKey] = useState('');
   const [todayRecord, setTodayRecord] = useState<DayRecord | null>(null);
@@ -42,8 +51,44 @@ export default function HomeScreen() {
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [isHidingRecordButton, setIsHidingRecordButton] = useState(false);
   const [showRecordButton, setShowRecordButton] = useState(true);
+  const [recordButtonMounted, setRecordButtonMounted] = useState(true);
+  const [recordButtonAppearanceFrozen, setRecordButtonAppearanceFrozen] = useState<boolean | null>(
+    null,
+  );
   const hasLoadedRef = useRef(false);
+  const skipRecordButtonAnimationRef = useRef(true);
+  const recordButtonHideAnimationRef = useRef(false);
+  const recordButtonScale = useSharedValue(1);
+
+  const finishHidingRecordButton = useCallback(() => {
+    recordButtonHideAnimationRef.current = false;
+    setIsHidingRecordButton(false);
+    setRecordButtonMounted(false);
+    setRecordButtonAppearanceFrozen(null);
+  }, []);
+
+  const startHideRecordButton = useCallback(() => {
+    if (recordButtonHideAnimationRef.current) {
+      return;
+    }
+
+    recordButtonHideAnimationRef.current = true;
+    setIsHidingRecordButton(true);
+    recordButtonScale.value = withTiming(
+      0,
+      {
+        duration: 220,
+        easing: Easing.in(Easing.cubic),
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(finishHidingRecordButton)();
+        }
+      },
+    );
+  }, [finishHidingRecordButton, recordButtonScale]);
 
   const loadData = useCallback(async (showLoading = false) => {
     if (showLoading) {
@@ -97,16 +142,69 @@ export default function HomeScreen() {
 
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const isBeforeStartTime = currentMinutes < startTimeMinutes;
+  const shouldShowRecordButtonArea =
+    !isBeforeStartTime && (!todayRecord || showRecordButton);
 
-  const handleRecord = async () => {
-    if (isBeforeStartTime) {
+  const recordButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: recordButtonScale.value }],
+  }));
+
+  useEffect(() => {
+    const snapRecordButtonVisibility = (visible: boolean) => {
+      recordButtonHideAnimationRef.current = false;
+      setIsHidingRecordButton(false);
+      recordButtonScale.value = visible ? 1 : 0;
+      setRecordButtonMounted(visible);
+    };
+
+    if (!isLoading && skipRecordButtonAnimationRef.current) {
+      skipRecordButtonAnimationRef.current = false;
+      snapRecordButtonVisibility(shouldShowRecordButtonArea);
       return;
     }
 
+    if (isBeforeStartTime || !todayRecord) {
+      snapRecordButtonVisibility(shouldShowRecordButtonArea);
+      return;
+    }
+
+    if (showRecordButton) {
+      recordButtonHideAnimationRef.current = false;
+      setIsHidingRecordButton(false);
+      setRecordButtonMounted(true);
+      recordButtonScale.value = withTiming(1, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+      });
+      return;
+    }
+
+    startHideRecordButton();
+  }, [
+    isBeforeStartTime,
+    isLoading,
+    recordButtonScale,
+    shouldShowRecordButtonArea,
+    showRecordButton,
+    startHideRecordButton,
+    todayRecord,
+  ]);
+
+  const handleRecord = async () => {
+    if (isBeforeStartTime || isRecording || isHidingRecordButton) {
+      return;
+    }
+
+    setRecordButtonAppearanceFrozen(Boolean(todayRecord));
     setIsRecording(true);
-    await upsertCurrentRecord(db);
-    await loadData();
-    setIsRecording(false);
+    startHideRecordButton();
+
+    try {
+      await upsertCurrentRecord(db);
+      await loadData();
+    } finally {
+      setIsRecording(false);
+    }
   };
 
   const handleToggleRecordButton = () => {
@@ -124,13 +222,17 @@ export default function HomeScreen() {
   });
   const isTodayPanelSelected = Boolean(todayRecord && showRecordButton);
   const hasNoTodayRecord = !isLoading && !todayRecord;
+  const isRecordButtonRecordedAppearance =
+    recordButtonAppearanceFrozen ?? Boolean(todayRecord);
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Rec My Day</Text>
-          <Text style={styles.subtitle}>🚀开始时间 {formatTimeFromMinutes(startTimeMinutes)}</Text>
+          <Text style={styles.title}>{t('home.title')}</Text>
+          <Text style={styles.subtitle}>
+            {t('home.startTime', { time: formatTimeFromMinutes(startTimeMinutes) })}
+          </Text>
         </View>
 
         <Pressable
@@ -153,7 +255,7 @@ export default function HomeScreen() {
                 isTodayPanelSelected && styles.todayPanelTextSelected,
               ]}
             >
-              今天
+              {t('home.today')}
             </Text>
             {currentDayKey ? (
               <Text
@@ -197,32 +299,33 @@ export default function HomeScreen() {
                     isTodayPanelSelected && styles.todayPanelTextSelected,
                   ]}
                 >
-                  更新于{' '}
-                  {new Date(`${todayRecord.updated_at.replace(' ', 'T')}Z`).toLocaleString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
+                  {t('home.updatedAt', {
+                    time: new Date(`${todayRecord.updated_at.replace(' ', 'T')}Z`).toLocaleString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    }),
                   })}
                 </Text>
               </View>
             </>
           ) : (
             <>
-              <Text style={styles.minutes}>尚未记录</Text>
+              <Text style={styles.minutes}>{t('home.notRecorded')}</Text>
               <Text style={styles.meta}>{currentDayKey ? formatDayLabel(currentDayKey) : ''}</Text>
             </>
           )}
         </Pressable>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>最近记录</Text>
+          <Text style={styles.sectionTitle}>{t('home.recentRecords')}</Text>
         </View>
 
         <View style={styles.recordList}>
           {previousRecords.length === 0 ? (
             <View style={styles.emptyBox}>
               <Ionicons color={colors.muted} name="time-outline" size={24} />
-              <Text style={styles.emptyText}>暂无历史记录</Text>
+              <Text style={styles.emptyText}>{t('home.noHistory')}</Text>
             </View>
           ) : (
             previousRecords.map((record) => (
@@ -248,31 +351,33 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {!isBeforeStartTime && (!todayRecord || showRecordButton) ? (
+      {recordButtonMounted ? (
         <View pointerEvents="box-none" style={styles.actionArea}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={isRecording}
-            onPress={handleRecord}
-            style={({ pressed }) => [
-              styles.recordButton,
-              todayRecord && styles.recordButtonRecorded,
-              pressed &&
-                (todayRecord ? styles.recordButtonRecordedPressed : styles.recordButtonPressed),
-              isRecording && styles.recordButtonDisabled,
-            ]}
+          <Animated.View
+            pointerEvents={shouldShowRecordButtonArea && !isHidingRecordButton ? 'auto' : 'none'}
+            style={recordButtonAnimatedStyle}
           >
-            {isRecording ? (
-              <ActivityIndicator color={colors.surface} />
-            ) : (
-              <>
-                <Ionicons color={colors.surface} name="radio-button-on" size={24} />
-                <View style={styles.recordButtonTextGroup}>
-                  <Text style={styles.recordButtonTime}>{currentTime}</Text>
-                </View>
-              </>
-            )}
-          </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
+              onPress={handleRecord}
+              style={({ pressed }) => [
+                styles.recordButton,
+                isRecordButtonRecordedAppearance && styles.recordButtonRecorded,
+                pressed &&
+                  !isRecording &&
+                  (isRecordButtonRecordedAppearance
+                    ? styles.recordButtonRecordedPressed
+                    : styles.recordButtonPressed),
+                isRecording && styles.recordButtonDisabled,
+              ]}
+            >
+              <Ionicons color={colors.surface} name="radio-button-on" size={24} />
+              <View style={styles.recordButtonTextGroup}>
+                <Text style={styles.recordButtonTime}>{currentTime}</Text>
+              </View>
+            </Pressable>
+          </Animated.View>
         </View>
       ) : null}
     </SafeAreaView>

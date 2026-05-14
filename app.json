@@ -18,7 +18,8 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#F7F7F2"
       },
-      "package": "com.wmxy2005.recmyday"
+      "package": "com.wmxy2005.recmyday",
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "bundler": "metro",

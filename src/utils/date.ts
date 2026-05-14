@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 export type CalendarCell = {
   key: string;
   day: number | null;
@@ -7,7 +9,10 @@ export type CalendarCell = {
 export type RecordUnit = 'hours' | 'minutes';
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
-const weekdayLabels = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+
+function getWeekdayLabels() {
+  return i18n.t('date.weekdays', { returnObjects: true }) as string[];
+}
 
 export function formatDayKey(date: Date) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
@@ -35,19 +40,26 @@ export function addMonths(date: Date, offset: number) {
 }
 
 export function formatMonthTitle(date: Date) {
-  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+  return i18n.t('date.monthTitle', {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+  });
 }
 
 export function formatDayLabel(dayKey: string) {
   const [, month, day] = dayKey.split('-');
-  return `${Number(month)}月${Number(day)}日`;
+
+  return i18n.t('date.dayLabel', {
+    month: Number(month),
+    day: Number(day),
+  });
 }
 
 export function formatWeekdayLabel(dayKey: string) {
   const [year, month, day] = dayKey.split('-').map(Number);
   const date = new Date(year, month - 1, day);
 
-  return weekdayLabels[date.getDay()];
+  return getWeekdayLabels()[date.getDay()];
 }
 
 export function formatDayWithWeekdayLabel(dayKey: string) {
@@ -61,17 +73,21 @@ export function formatTimeFromMinutes(totalMinutes: number) {
 
 export function formatDuration(totalMinutes: number, unit: RecordUnit = 'minutes') {
   if (unit === 'minutes') {
-    return `${totalMinutes}分`;
+    return i18n.t('date.durationMinutes', { value: totalMinutes });
   }
 
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 
   if (hours === 0) {
-    return `${minutes}分`;
+    return i18n.t('date.durationMinutes', { value: minutes });
   }
 
-  return `${hours}小时${minutes > 0 ? `${minutes}分` : ''}`;
+  if (minutes > 0) {
+    return i18n.t('date.durationHoursMinutes', { hours, minutes });
+  }
+
+  return i18n.t('date.durationHoursOnly', { hours });
 }
 
 export function getMonthCalendarCells(monthDate: Date): CalendarCell[] {

@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { databaseName, migrateDatabase } from '@/data/database';
+import '@/i18n';
 import { colors } from '@/theme';
 
 function LoadingFallback() {

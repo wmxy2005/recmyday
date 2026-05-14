@@ -1,10 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +16,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -34,11 +39,9 @@ import {
   type RecordUnit,
 } from '@/utils/date';
 
-const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-
-function formatDateTime(value: string | undefined) {
+function formatDateTime(value: string | undefined, emptyLabel: string) {
   if (!value) {
-    return '暂无';
+    return emptyLabel;
   }
 
   return new Date(`${value.replace(' ', 'T')}Z`).toLocaleString([], {
@@ -55,7 +58,10 @@ function cleanMinutesInput(value: string) {
 }
 
 export default function StatsScreen() {
+  const { t } = useTranslation();
   const db = useSQLiteContext();
+  const tabBarHeight = useBottomTabBarHeight();
+  const scrollViewRef = useRef<ScrollView>(null);
   const [monthDate, setMonthDate] = useState(() => new Date());
   const [records, setRecords] = useState<DayRecord[]>([]);
   const [totalMinutes, setTotalMinutes] = useState(0);
@@ -66,6 +72,25 @@ export default function StatsScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [showEditorActions, setShowEditorActions] = useState(false);
   const hasLoadedRef = useRef(false);
+
+  const scrollEditorIntoView = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    });
+  }, []);
+
+  useEffect(() => {
+    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const subscription = Keyboard.addListener(eventName, () => {
+      if (selectedDayKey && showEditorActions) {
+        scrollEditorIntoView();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [selectedDayKey, showEditorActions, scrollEditorIntoView]);
+
+  const weekdays = t('stats.weekdaysShort', { returnObjects: true }) as string[];
 
   const loadData = useCallback(async (showLoading = false) => {
     if (showLoading) {
@@ -139,7 +164,7 @@ export default function StatsScreen() {
     const parsedMinutes = Number(editedMinutes);
 
     if (!Number.isInteger(parsedMinutes) || parsedMinutes < 0) {
-      Alert.alert('分钟数无效', '请输入大于或等于 0 的整数。');
+      Alert.alert(t('stats.invalidMinutesTitle'), t('stats.invalidMinutesMessage'));
       return;
     }
 
@@ -168,7 +193,17 @@ export default function StatsScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={tabBarHeight}
+        style={styles.keyboardAvoid}
+      >
+        <ScrollView
+          ref={scrollViewRef}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
@@ -190,7 +225,7 @@ export default function StatsScreen() {
         </View>
 
         <View style={styles.summary}>
-          <Text style={styles.summaryLabel}>当月总计</Text>
+          <Text style={styles.summaryLabel}>{t('stats.monthTotal')}</Text>
           {isLoading ? (
             <ActivityIndicator color={colors.primary} />
           ) : (
@@ -229,6 +264,7 @@ export default function StatsScreen() {
                       styles.dayCell,
                       !cell.day && styles.emptyCell,
                       cell.day && isWeekend ? styles.weekendCell : null,
+                      hasRecord && styles.dayCellWithRecord,
                       isToday && styles.todayCell,
                       selectedDayKey !== null &&
                         selectedDayKey === cell.dayKey &&
@@ -275,11 +311,13 @@ export default function StatsScreen() {
                 <Text style={styles.editorSubtitle}>
                   {selectedRecord
                     ? formatDuration(selectedRecord.minutes_since_start, recordUnit)
-                    : '暂无记录'}
+                    : t('stats.noRecord')}
                 </Text>
               </View>
               <Pressable
-                accessibilityLabel={showEditorActions ? '隐藏编辑操作' : '显示编辑操作'}
+                accessibilityLabel={
+                  showEditorActions ? t('stats.hideEditActions') : t('stats.showEditActions')
+                }
                 accessibilityRole="button"
                 onPress={() => setShowEditorActions((current) => !current)}
                 style={styles.editButton}
@@ -298,6 +336,7 @@ export default function StatsScreen() {
                   <TextInput
                     editable={showEditorActions && !isSaving}
                     keyboardType="number-pad"
+                    onFocus={scrollEditorIntoView}
                     onChangeText={(value) => setEditedMinutes(cleanMinutesInput(value))}
                     placeholder="0"
                     placeholderTextColor={colors.muted}
@@ -308,10 +347,10 @@ export default function StatsScreen() {
                     ]}
                     value={editedMinutes}
                   />
-                  <Text style={styles.minutesUnit}>分</Text>
+                  <Text style={styles.minutesUnit}>{t('date.minutesUnit')}</Text>
                   {showEditorActions ? (
                     <Pressable
-                      accessibilityLabel="清除记录"
+                      accessibilityLabel={t('stats.clearRecord')}
                       accessibilityRole="button"
                       disabled={isSaving}
                       onPress={handleClearSelectedDay}
@@ -328,15 +367,15 @@ export default function StatsScreen() {
               </View>
               <View style={styles.timeInfoRow}>
                 <View style={styles.timeInfoItem}>
-                  <Text style={styles.detailLabel}>创建时间</Text>
+                  <Text style={styles.detailLabel}>{t('stats.createdAt')}</Text>
                   <Text style={styles.detailValue}>
-                    {formatDateTime(selectedRecord?.created_at)}
+                    {formatDateTime(selectedRecord?.created_at, t('stats.noData'))}
                   </Text>
                 </View>
                 <View style={styles.timeInfoItem}>
-                  <Text style={styles.detailLabel}>最后更新</Text>
+                  <Text style={styles.detailLabel}>{t('stats.lastUpdated')}</Text>
                   <Text style={styles.detailValue}>
-                    {formatDateTime(selectedRecord?.updated_at)}
+                    {formatDateTime(selectedRecord?.updated_at, t('stats.noData'))}
                   </Text>
                 </View>
               </View>
@@ -354,13 +393,16 @@ export default function StatsScreen() {
                     isSaving && styles.saveButtonDisabled,
                   ]}
                 >
-                  <Text style={styles.saveText}>{isSaving ? '保存中' : '保存'}</Text>
+                  <Text style={styles.saveText}>
+                    {isSaving ? t('stats.saving') : t('stats.save')}
+                  </Text>
                 </Pressable>
               </View>
             ) : null}
           </View>
         ) : null}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -369,6 +411,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  keyboardAvoid: {
+    flex: 1,
   },
   content: {
     paddingHorizontal: spacing.md,
@@ -450,8 +495,11 @@ const styles = StyleSheet.create({
   weekendCell: {
     backgroundColor: '#ecf6f7',
   },
+  dayCellWithRecord: {
+    backgroundColor: colors.middlelight,
+  },
   todayCell: {
-    backgroundColor: colors.danger,
+    backgroundColor: colors.highlight,
   },
   dayCellSelected: {
     borderColor: colors.info,
@@ -480,7 +528,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   dayMinutesActive: {
-    color: colors.danger,
+    color: colors.highlight,
   },
   todayDayMinutes: {
     color: colors.surface,
