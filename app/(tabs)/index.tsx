@@ -58,15 +58,16 @@ export default function HomeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [isHidingRecordButton, setIsHidingRecordButton] = useState(false);
-  const [showRecordButton, setShowRecordButton] = useState(true);
-  const [recordButtonMounted, setRecordButtonMounted] = useState(true);
+  const [showRecordButton, setShowRecordButton] = useState(false);
+  const [recordButtonMounted, setRecordButtonMounted] = useState(false);
   const [recordButtonAppearanceFrozen, setRecordButtonAppearanceFrozen] = useState<boolean | null>(
     null,
   );
   const hasLoadedRef = useRef(false);
   const skipRecordButtonAnimationRef = useRef(true);
   const recordButtonHideAnimationRef = useRef(false);
-  const recordButtonScale = useSharedValue(1);
+  /** Start hidden so we never paint a full-size button before visibility is synced (avoids a bogus “hide” on first load). */
+  const recordButtonScale = useSharedValue(0);
 
   const finishHidingRecordButton = useCallback(() => {
     recordButtonHideAnimationRef.current = false;
@@ -117,9 +118,7 @@ export default function HomeScreen() {
     setRecentRecordLimit(limit);
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
-    if (!currentRecord) {
-      setShowRecordButton(true);
-    }
+    setShowRecordButton(!currentRecord);
     setRecords(recentRecords);
     setIsLoading(false);
   }, [db]);
@@ -152,7 +151,7 @@ export default function HomeScreen() {
   );
 
   const shouldShowRecordButtonArea =
-    !isBeforeStartTime && (!todayRecord || showRecordButton);
+    !isLoading && !isBeforeStartTime && (!todayRecord || showRecordButton);
 
   const recordButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: recordButtonScale.value }],
@@ -188,14 +187,20 @@ export default function HomeScreen() {
       return;
     }
 
-    startHideRecordButton();
+    // Toggle / default hidden: snap off without shrink animation. Recording still uses
+    // `startHideRecordButton` from `handleRecord`; skip while that animation is in flight.
+    if (isRecording) {
+      return;
+    }
+
+    snapRecordButtonVisibility(shouldShowRecordButtonArea);
   }, [
     isBeforeStartTime,
     isLoading,
+    isRecording,
     recordButtonScale,
     shouldShowRecordButtonArea,
     showRecordButton,
-    startHideRecordButton,
     todayRecord,
   ]);
 
