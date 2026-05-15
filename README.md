@@ -4,8 +4,8 @@
 
 ## 技术栈
 
-- Expo SDK 55
-- React Native 0.83
+- Expo SDK
+- React Native
 - Expo Router bottom tabs
 - expo-sqlite
 - TypeScript
@@ -14,7 +14,7 @@
 
 ## 功能
 
-- 点击主页底部按钮，新增或覆盖当天记录
+- 点击主页底部记录按钮，新增或覆盖当天记录
 - 根据设定页的一天开始时间计算当天分钟数
 - 可在设定页选择记录单位：小时或分钟，默认分钟
 - 可在设定页配置主页最近记录最大显示数量，默认 5
