@@ -4,13 +4,13 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { type AnimatedStyle } from 'react-native-reanimated';
 import type { ViewStyle } from 'react-native';
 
-import { colors, spacing } from '@/theme';
+import { spacing, useAppTheme } from '@/theme';
 
 type RecordButtonProps = {
   animatedStyle: AnimatedStyle<ViewStyle>;
   disabled: boolean;
+  hasRecord: boolean;
   isRecording: boolean;
-  isRecordedAppearance: boolean;
   onPress: () => void;
   pointerEvents: 'auto' | 'none';
 };
@@ -18,11 +18,14 @@ type RecordButtonProps = {
 function RecordButtonComponent({
   animatedStyle,
   disabled,
+  hasRecord,
   isRecording,
-  isRecordedAppearance,
   onPress,
   pointerEvents,
 }: RecordButtonProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = makeStyles(theme);
   const [currentTime, setCurrentTime] = useState(() =>
     new Date().toLocaleTimeString([], {
       hour: '2-digit',
@@ -53,14 +56,14 @@ function RecordButtonComponent({
         onPress={onPress}
         style={({ pressed }) => [
           styles.button,
-          isRecordedAppearance && styles.recorded,
-          pressed &&
-            !isRecording &&
-            (isRecordedAppearance ? styles.recordedPressed : styles.pressed),
+          hasRecord && styles.recorded,
+          pressed && !isRecording && !hasRecord && styles.pressed,
           isRecording && styles.disabled,
         ]}
       >
-        <Ionicons color={colors.surface} name="radio-button-on" size={24} />
+        <View style={styles.iconBadge}>
+          <Ionicons color={colors.surface} name="radio-button-on" size={20} />
+        </View>
         <View style={styles.textGroup}>
           <Text style={styles.time}>{currentTime}</Text>
         </View>
@@ -71,17 +74,21 @@ function RecordButtonComponent({
 
 export const RecordButton = memo(RecordButtonComponent);
 
-const styles = StyleSheet.create({
+const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
+  const { colors, shadow } = theme;
+
+  return StyleSheet.create({
   button: {
-    minWidth: 152,
-    height: 64,
-    paddingHorizontal: spacing.lg,
-    borderRadius: 32,
+    minWidth: 174,
+    height: 62,
+    paddingHorizontal: spacing.md,
+    borderRadius: 31,
     backgroundColor: colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
+    ...shadow,
   },
   pressed: {
     backgroundColor: colors.primaryDark,
@@ -89,8 +96,13 @@ const styles = StyleSheet.create({
   recorded: {
     backgroundColor: colors.danger,
   },
-  recordedPressed: {
-    backgroundColor: '#963634',
+  iconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   textGroup: {
     alignItems: 'flex-start',
@@ -104,4 +116,5 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.7,
   },
-});
+  });
+};

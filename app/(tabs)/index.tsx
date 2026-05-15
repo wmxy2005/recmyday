@@ -31,7 +31,7 @@ import {
   getStartTimeMinutes,
   upsertCurrentRecord,
 } from '@/data/database';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, useAppTheme } from '@/theme';
 import {
   formatDayLabel,
   formatDuration,
@@ -47,6 +47,9 @@ function getIsBeforeStartTime(startTimeMinutes: number) {
 
 export default function HomeScreen() {
   const { t } = useTranslation();
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
   const [currentDayKey, setCurrentDayKey] = useState('');
   const [todayRecord, setTodayRecord] = useState<DayRecord | null>(null);
@@ -60,9 +63,6 @@ export default function HomeScreen() {
   const [isHidingRecordButton, setIsHidingRecordButton] = useState(false);
   const [showRecordButton, setShowRecordButton] = useState(false);
   const [recordButtonMounted, setRecordButtonMounted] = useState(false);
-  const [recordButtonAppearanceFrozen, setRecordButtonAppearanceFrozen] = useState<boolean | null>(
-    null,
-  );
   const hasLoadedRef = useRef(false);
   const skipRecordButtonAnimationRef = useRef(true);
   const recordButtonHideAnimationRef = useRef(false);
@@ -73,7 +73,6 @@ export default function HomeScreen() {
     recordButtonHideAnimationRef.current = false;
     setIsHidingRecordButton(false);
     setRecordButtonMounted(false);
-    setRecordButtonAppearanceFrozen(null);
   }, []);
 
   const startHideRecordButton = useCallback(() => {
@@ -118,7 +117,7 @@ export default function HomeScreen() {
     setRecentRecordLimit(limit);
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
-    setShowRecordButton(!currentRecord);
+    setShowRecordButton(!currentRecord && !getIsBeforeStartTime(startTime));
     setRecords(recentRecords);
     setIsLoading(false);
   }, [db]);
@@ -209,7 +208,6 @@ export default function HomeScreen() {
       return;
     }
 
-    setRecordButtonAppearanceFrozen(Boolean(todayRecord));
     setIsRecording(true);
     startHideRecordButton();
 
@@ -223,17 +221,16 @@ export default function HomeScreen() {
   };
 
   const handleToggleRecordButton = () => {
-    if (!todayRecord) {
+    if (!todayRecord || isBeforeStartTime) {
       return;
     }
 
     setShowRecordButton((current) => !current);
   };
 
+  const canToggleRecordButton = Boolean(todayRecord && !isBeforeStartTime);
   const isTodayPanelSelected = Boolean(todayRecord && showRecordButton);
   const hasNoTodayRecord = !isLoading && !todayRecord;
-  const isRecordButtonRecordedAppearance =
-    recordButtonAppearanceFrozen ?? Boolean(todayRecord);
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
@@ -246,8 +243,8 @@ export default function HomeScreen() {
         </View>
 
         <Pressable
-          accessibilityRole={todayRecord ? 'button' : undefined}
-          disabled={!todayRecord}
+          accessibilityRole={canToggleRecordButton ? 'button' : undefined}
+          disabled={!canToggleRecordButton}
           onPress={handleToggleRecordButton}
           style={({ pressed }) => [
             styles.todayPanel,
@@ -366,7 +363,7 @@ export default function HomeScreen() {
           <RecordButton
             animatedStyle={recordButtonAnimatedStyle}
             disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
-            isRecordedAppearance={isRecordButtonRecordedAppearance}
+            hasRecord={Boolean(todayRecord)}
             isRecording={isRecording}
             onPress={handleRecord}
             pointerEvents={shouldShowRecordButtonArea && !isHidingRecordButton ? 'auto' : 'none'}
@@ -377,43 +374,51 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
+  const { colors, shadow } = theme;
+
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
-    padding: spacing.lg,
-    paddingBottom: 96,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: 118,
   },
   header: {
-    gap: spacing.xs,
-    marginBottom: spacing.xl,
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
   },
   title: {
     color: colors.text,
-    fontSize: 30,
-    fontWeight: '800',
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: 0,
   },
   subtitle: {
     color: colors.muted,
-    fontSize: 15,
+    fontSize: 14,
+    fontWeight: '700',
   },
   todayPanel: {
-    minHeight: 128,
+    minHeight: 164,
     justifyContent: 'center',
     padding: spacing.xl,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
+    marginBottom: spacing.xl,
+    ...shadow,
   },
   todayPanelRecorded: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
   todayPanelRecordedPressed: {
-    backgroundColor: '#285F88',
+    backgroundColor: colors.primaryDark,
   },
   todayPanelSelected: {
     backgroundColor: colors.danger,
@@ -430,7 +435,7 @@ const styles = StyleSheet.create({
     color: colors.surface,
   },
   todayPanelWeekdaySelected: {
-    backgroundColor: '#FDECEF',
+    backgroundColor: 'rgba(255,255,255,0.9)',
     color: colors.danger,
   },
   sectionLabelRow: {
@@ -441,30 +446,33 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     color: colors.primary,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
   sectionLabelEmpty: {
     color: colors.info,
   },
   weekdayPill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.primarySoft,
     color: colors.primaryDark,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '800',
     overflow: 'hidden',
   },
   minutes: {
     color: colors.text,
-    fontSize: 38,
-    fontWeight: '800',
+    fontSize: 42,
+    fontWeight: '900',
+    letterSpacing: 0,
   },
   meta: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: '700',
     marginTop: spacing.sm,
   },
   todayMetaRow: {
@@ -477,77 +485,80 @@ const styles = StyleSheet.create({
   todayDate: {
     color: colors.muted,
     fontSize: 15,
+    fontWeight: '700',
   },
   todayUpdatedAt: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   sectionHeader: {
-    marginTop: spacing.sm,
     marginBottom: spacing.sm,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
   },
   recordList: {
     gap: spacing.sm,
   },
   recordRow: {
-    minHeight: 48,
-    paddingHorizontal: spacing.sm,
+    minHeight: 52,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.md,
   },
   recordDateRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   recordDate: {
     color: colors.text,
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
   },
   recordTime: {
     color: colors.muted,
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
   },
   recordMinutes: {
     color: colors.info,
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
   },
   emptyBox: {
-    minHeight: 120,
+    minHeight: 144,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surfaceAlt,
+    borderStyle: 'dashed',
   },
   emptyText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   actionArea: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 18,
+    bottom: 22,
     alignItems: 'center',
   },
-});
+  });
+};

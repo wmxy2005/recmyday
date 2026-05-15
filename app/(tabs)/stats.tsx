@@ -27,7 +27,7 @@ import {
   getRecordUnit,
   upsertRecordMinutes,
 } from '@/data/database';
-import { colors, radius, spacing } from '@/theme';
+import { radius, spacing, useAppTheme } from '@/theme';
 import {
   addMonths,
   formatDayLabel,
@@ -59,6 +59,9 @@ function cleanMinutesInput(value: string) {
 
 export default function StatsScreen() {
   const { t } = useTranslation();
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
   const tabBarHeight = useBottomTabBarHeight();
   const scrollViewRef = useRef<ScrollView>(null);
@@ -439,7 +442,10 @@ export default function StatsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
+  const { colors, shadow } = theme;
+
+  return StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -448,23 +454,23 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   monthButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceElevated,
     borderColor: colors.border,
     borderWidth: 1,
   },
@@ -474,12 +480,12 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   currentMonthButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: colors.primarySoft,
     alignSelf: 'center',
   },
   currentMonthButtonPressed: {
@@ -492,36 +498,38 @@ const styles = StyleSheet.create({
   },
   monthTitle: {
     color: colors.text,
-    fontSize: 20,
-    fontWeight: '800',
-    lineHeight: 24,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 28,
     includeFontPadding: false,
   },
   summary: {
-    minHeight: 72,
+    minHeight: 104,
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.lg,
+    ...shadow,
   },
   summaryLabel: {
     color: colors.primary,
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 2,
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: spacing.xs,
+    textTransform: 'uppercase',
   },
   summaryValue: {
     color: colors.text,
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 34,
+    fontWeight: '900',
   },
   weekHeader: {
     flexDirection: 'row',
-    gap: 3,
+    gap: 5,
     marginBottom: spacing.xs,
   },
   weekday: {
@@ -532,34 +540,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   calendarGrid: {
-    gap: 3,
+    gap: 5,
   },
   calendarWeek: {
     flexDirection: 'row',
-    gap: 3,
+    gap: 5,
   },
   dayCell: {
     flex: 1,
-    aspectRatio: 0.92,
+    aspectRatio: 0.88,
     padding: spacing.xs,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 2,
     borderColor: colors.border,
     justifyContent: 'space-between',
   },
   weekendCell: {
-    backgroundColor: '#ecf6f7',
+    backgroundColor: colors.infoSoft,
   },
   dayCellWithRecord: {
-    backgroundColor: colors.middlelight,
+    backgroundColor: colors.primarySoft,
   },
   todayCell: {
-    backgroundColor: colors.highlight,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   dayCellSelected: {
-    borderColor: colors.info,
-    borderWidth: 2,
+    borderColor: colors.highlight,
   },
   emptyCell: {
     backgroundColor: 'transparent',
@@ -568,7 +576,7 @@ const styles = StyleSheet.create({
   dayNumber: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
     textAlign: 'center',
   },
   dayNumberActive: {
@@ -580,23 +588,24 @@ const styles = StyleSheet.create({
   dayMinutes: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     textAlign: 'center',
   },
   dayMinutesActive: {
-    color: colors.highlight,
+    color: colors.primaryDark,
   },
   todayDayMinutes: {
     color: colors.surface,
   },
   editorPanel: {
     width: '100%',
-    padding: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surfaceElevated,
     borderColor: colors.border,
     borderWidth: 1,
-    marginTop: spacing.md,
+    marginTop: spacing.lg,
+    ...shadow,
   },
   editorHeader: {
     flexDirection: 'row',
@@ -612,23 +621,25 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   editButton: {
-    width: 34,
-    height: 34,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
   },
   editorTitle: {
     color: colors.text,
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
   },
   weekdayPill: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
+    paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.primarySoft,
     color: colors.primaryDark,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
     overflow: 'hidden',
   },
@@ -663,9 +674,10 @@ const styles = StyleSheet.create({
   },
   minutesInput: {
     flex: 1,
-    height: 40,
+    minWidth: 0,
+    height: 48,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surfaceAlt,
@@ -687,17 +699,19 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontWeight: '800',
+    flexShrink: 0,
   },
   clearIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
+    width: 48,
+    height: 48,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.danger,
+    flexShrink: 0,
   },
   clearIconButtonPressed: {
-    backgroundColor: '#963634',
+    backgroundColor: colors.dangerDark,
   },
   editorActions: {
     flexDirection: 'row',
@@ -706,8 +720,8 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     flex: 1,
-    height: 42,
-    borderRadius: radius.md,
+    height: 50,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primary,
@@ -723,4 +737,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-});
+  });
+};

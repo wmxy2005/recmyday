@@ -13,7 +13,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { colors } from '@/theme';
+import { useAppTheme } from '@/theme';
 
 type TabIconName = keyof typeof Ionicons.glyphMap;
 
@@ -35,6 +35,7 @@ function AnimatedTabBarButton({
   children,
   ...rest
 }: BottomTabBarButtonProps) {
+  const { colors } = useAppTheme();
   const scale = useSharedValue(1);
   const pressed = useSharedValue(0);
 
@@ -50,7 +51,7 @@ function AnimatedTabBarButton({
     <Animated.View style={[style, styles.tabBarButton, animatedStyle]}>
       <Animated.View pointerEvents="none" style={[styles.gradientBackground, gradientStyle]}>
         <LinearGradient
-          colors={['rgba(31, 122, 90, 0.28)', 'rgba(31, 122, 90, 0.12)', 'rgba(31, 122, 90, 0)']}
+          colors={[colors.primarySoft, `${colors.primarySoft}99`, `${colors.primarySoft}00`]}
           end={{ x: 0.5, y: 1 }}
           locations={[0, 0.55, 1]}
           start={{ x: 0.5, y: 0 }}
@@ -60,7 +61,7 @@ function AnimatedTabBarButton({
       <PlatformPressable
         {...rest}
         onPressIn={(event) => {
-          scale.value = withSpring(0.9, tabPressSpring);
+          scale.value = withSpring(0.96, tabPressSpring);
           pressed.value = withTiming(1, tabGradientFade);
           onPressIn?.(event);
         }}
@@ -95,6 +96,7 @@ function tabIcon(name: TabIconName, focusedName: TabIconName) {
 
 export default function TabLayout() {
   const { t } = useTranslation();
+  const { colors, isDark } = useAppTheme();
 
   return (
     <Tabs
@@ -110,10 +112,26 @@ export default function TabLayout() {
           height: 56,
           paddingBottom: 0,
           paddingTop: 0,
+          shadowColor: isDark ? '#000000' : '#10231B',
+          shadowOffset: { width: 0, height: -8 },
+          shadowOpacity: isDark ? 0.2 : 0.05,
+          shadowRadius: 18,
+          elevation: 8,
+        },
+        tabBarItemStyle: {
+          height: 56,
+          paddingVertical: 0,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        tabBarIconStyle: {
+          marginTop: 0,
+          marginBottom: 0,
         },
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '600',
+          fontWeight: '700',
+          lineHeight: 12,
         },
       }}
     >
@@ -144,18 +162,29 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   tabBarButton: {
+    flex: 1,
+    height: '100%',
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
   },
   gradientBackground: {
     ...StyleSheet.absoluteFillObject,
-    marginHorizontal: 10,
-    marginVertical: 6,
-    borderRadius: 14,
+    marginHorizontal: 0,
+    marginVertical: 0,
+    borderRadius: 0,
     overflow: 'hidden',
   },
   tabBarPressable: {
     flex: 1,
+    width: '100%',
+    height: '100%',
+    minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
 });

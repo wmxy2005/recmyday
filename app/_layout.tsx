@@ -8,9 +8,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { databaseName, migrateDatabase } from '@/data/database';
 import '@/i18n';
-import { colors } from '@/theme';
+import { useAppTheme } from '@/theme';
 
 function LoadingFallback() {
+  const { colors } = useAppTheme();
+  const styles = makeStyles(colors.background);
+
   return (
     <View style={styles.loading}>
       <ActivityIndicator color={colors.primary} size="large" />
@@ -19,12 +22,15 @@ function LoadingFallback() {
 }
 
 export default function RootLayout() {
+  const { isDark } = useAppTheme();
+  const styles = makeStyles(isDark ? '#0D1110' : '#F6F7F5');
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <Suspense fallback={<LoadingFallback />}>
           <SQLiteProvider databaseName={databaseName} onInit={migrateDatabase} useSuspense>
-            <StatusBar style="dark" />
+            <StatusBar style={isDark ? 'light' : 'dark'} />
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(tabs)" />
             </Stack>
@@ -35,15 +41,16 @@ export default function RootLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (backgroundColor: string) =>
+  StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor,
   },
   loading: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.background,
+    backgroundColor,
   },
-});
+  });
