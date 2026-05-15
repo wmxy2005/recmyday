@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -39,10 +40,21 @@ import {
   formatWeekdayLabel,
   type RecordUnit,
 } from '@/utils/date';
+import { getRecordMinutesColor } from '@/utils/recordColor';
 
 function getIsBeforeStartTime(startTimeMinutes: number) {
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   return currentMinutes < startTimeMinutes;
+}
+
+function formatRecordRange(record: DayRecord, startTimeMinutes: number) {
+  const start = formatTimeFromMinutes(startTimeMinutes);
+  const end = new Date(record.recorded_at).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return `${start} - ${end}`;
 }
 
 export default function HomeScreen() {
@@ -230,16 +242,18 @@ export default function HomeScreen() {
 
   const canToggleRecordButton = Boolean(todayRecord && !isBeforeStartTime);
   const isTodayPanelSelected = Boolean(todayRecord && showRecordButton);
-  const hasNoTodayRecord = !isLoading && !todayRecord;
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>{t('home.title')}</Text>
-          <Text style={styles.subtitle}>
-            {t('home.startTime', { time: formatTimeFromMinutes(startTimeMinutes) })}
-          </Text>
+          <View>
+            <Text style={styles.title}>{t('home.today')}</Text>
+            <Text style={styles.subtitle}>{currentDayKey ? formatDayLabel(currentDayKey) : ''}</Text>
+          </View>
+          <View style={styles.headerIcon}>
+            <Ionicons color={colors.text} name="calendar-clear-outline" size={24} />
+          </View>
         </View>
 
         <Pressable
@@ -247,81 +261,62 @@ export default function HomeScreen() {
           disabled={!canToggleRecordButton}
           onPress={handleToggleRecordButton}
           style={({ pressed }) => [
-            styles.todayPanel,
+            styles.todayPanelShell,
             todayRecord && styles.todayPanelRecorded,
             pressed && todayRecord && styles.todayPanelRecordedPressed,
             isTodayPanelSelected && styles.todayPanelSelected,
           ]}
         >
-          <View style={styles.sectionLabelRow}>
-            <Text
-              style={[
-                styles.sectionLabel,
-                hasNoTodayRecord && styles.sectionLabelEmpty,
-                todayRecord && styles.todayPanelTextRecorded,
-                isTodayPanelSelected && styles.todayPanelTextSelected,
-              ]}
-            >
-              {t('home.today')}
-            </Text>
-            {currentDayKey ? (
-              <Text
-                style={[
-                  styles.weekdayPill,
-                  todayRecord && styles.todayPanelWeekdayRecorded,
-                  isTodayPanelSelected && styles.todayPanelWeekdaySelected,
-                ]}
-              >
-                {formatWeekdayLabel(currentDayKey)}
-              </Text>
-            ) : null}
-          </View>
-          {isLoading ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : todayRecord ? (
-            <>
-              <Text
-                style={[
-                  styles.minutes,
-                  todayRecord && styles.todayPanelTextRecorded,
-                  isTodayPanelSelected && styles.todayPanelTextSelected,
-                ]}
-              >
-                {formatDuration(todayRecord.minutes_since_start, recordUnit)}
-              </Text>
-              <View style={styles.todayMetaRow}>
-                <Text
-                  style={[
-                    styles.todayDate,
-                    todayRecord && styles.todayPanelTextRecorded,
-                    isTodayPanelSelected && styles.todayPanelTextSelected,
-                  ]}
-                >
-                  {formatDayLabel(todayRecord.day_key)}
-                </Text>
-                <Text
-                  style={[
-                    styles.todayUpdatedAt,
-                    todayRecord && styles.todayPanelTextRecorded,
-                    isTodayPanelSelected && styles.todayPanelTextSelected,
-                  ]}
-                >
-                  {t('home.updatedAt', {
-                    time: new Date(`${todayRecord.updated_at.replace(' ', 'T')}Z`).toLocaleString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    }),
-                  })}
-                </Text>
-              </View>
-            </>
-          ) : (
-            <>
-              <Text style={styles.minutes}>{t('home.notRecorded')}</Text>
-              <Text style={styles.meta}>{currentDayKey ? formatDayLabel(currentDayKey) : ''}</Text>
-            </>
-          )}
+          <LinearGradient
+            colors={['#FFE7B4', '#FFD991', '#FF895F']}
+            end={{ x: 0.05, y: 1 }}
+            start={{ x: 1, y: 0 }}
+            style={styles.todayPanel}
+          >
+            <View style={styles.todayCopy}>
+              <Text style={styles.cardLabel}>{t('home.today')}的时间记录</Text>
+              {isLoading ? (
+                <ActivityIndicator color={colors.primary} style={styles.loadingIndicator} />
+              ) : todayRecord ? (
+                <>
+                  {recordUnit === 'minutes' ? (
+                    <View style={styles.minutesRow}>
+                      <Text style={styles.minutesNumber}>{todayRecord.minutes_since_start}</Text>
+                      <Text style={styles.minutesUnit}>分钟</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.minutesText}>
+                      {formatDuration(todayRecord.minutes_since_start, recordUnit)}
+                    </Text>
+                  )}
+                  <View style={styles.todayMetaRow}>
+                    <Text style={styles.todayDate}>{formatRecordRange(todayRecord, startTimeMinutes)}</Text>
+                    <Ionicons color={colors.textSoft} name="create" size={17} />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.notRecorded}>{t('home.notRecorded')}</Text>
+                  <Text style={styles.meta}>
+                    {isBeforeStartTime
+                      ? t('home.startTime', { time: formatTimeFromMinutes(startTimeMinutes) })
+                      : currentDayKey
+                        ? `${formatWeekdayLabel(currentDayKey)} · 可记录`
+                        : ''}
+                  </Text>
+                </>
+              )}
+            </View>
+            <View style={styles.clock}>
+              <View style={[styles.clockTick, styles.clockTickTop]} />
+              <View style={[styles.clockTick, styles.clockTickRight]} />
+              <View style={[styles.clockTick, styles.clockTickBottom]} />
+              <View style={[styles.clockTick, styles.clockTickLeft]} />
+              <View style={styles.clockHandLong} />
+              <View style={styles.clockHandShort} />
+              <View style={styles.clockCenter} />
+            </View>
+          </LinearGradient>
         </Pressable>
 
         <View style={styles.sectionHeader}>
@@ -340,18 +335,35 @@ export default function HomeScreen() {
                 <View>
                   <View style={styles.recordDateRow}>
                     <Text style={styles.recordDate}>{formatDayLabel(record.day_key)}</Text>
-                    <Text style={styles.weekdayPill}>{formatWeekdayLabel(record.day_key)}</Text>
-                    <Text style={styles.recordTime}>
-                      {new Date(record.recorded_at).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
+                    <Text style={styles.recordWeekday}>{formatWeekdayLabel(record.day_key)}</Text>
                   </View>
+                  <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
                 </View>
-                <Text style={styles.recordMinutes}>
-                  {formatDuration(record.minutes_since_start, recordUnit)}
-                </Text>
+                <View style={styles.recordValueRow}>
+                  {recordUnit === 'minutes' ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.recordMinutes,
+                          { color: getRecordMinutesColor(record.minutes_since_start) },
+                        ]}
+                      >
+                        {record.minutes_since_start}
+                      </Text>
+                      <Text style={styles.recordUnitText}>分钟</Text>
+                    </>
+                  ) : (
+                    <Text
+                      style={[
+                        styles.recordMinutes,
+                        { color: getRecordMinutesColor(record.minutes_since_start) },
+                      ]}
+                    >
+                      {formatDuration(record.minutes_since_start, recordUnit)}
+                    </Text>
+                  )}
+                  <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
+                </View>
               </View>
             ))
           )}
@@ -384,45 +396,60 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   content: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: 118,
+    paddingTop: spacing.md,
+    paddingBottom: 132,
   },
   header: {
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
   },
   title: {
     color: colors.text,
-    fontSize: 34,
+    fontSize: 31,
     fontWeight: '900',
     letterSpacing: 0,
   },
   subtitle: {
-    color: colors.muted,
-    fontSize: 14,
+    color: colors.textSoft,
+    fontSize: 13,
     fontWeight: '700',
+    marginTop: 3,
   },
-  todayPanel: {
-    minHeight: 164,
+  headerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.xl,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  todayPanelShell: {
+    borderRadius: radius.xl,
     marginBottom: spacing.xl,
     ...shadow,
+    overflow: 'hidden',
+  },
+  todayPanel: {
+    minHeight: 178,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   todayPanelRecorded: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    opacity: 1,
   },
   todayPanelRecordedPressed: {
-    backgroundColor: colors.primaryDark,
+    transform: [{ scale: 0.99 }],
   },
   todayPanelSelected: {
-    backgroundColor: colors.danger,
-    borderColor: colors.danger,
+    opacity: 0.92,
   },
   todayPanelTextSelected: {
     color: colors.surface,
@@ -438,39 +465,54 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: 'rgba(255,255,255,0.9)',
     color: colors.danger,
   },
-  sectionLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+  todayCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: spacing.md,
+  },
+  cardLabel: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
     marginBottom: spacing.sm,
   },
-  sectionLabel: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
+  loadingIndicator: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xl,
   },
-  sectionLabelEmpty: {
-    color: colors.info,
+  minutesRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
   },
-  weekdayPill: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: colors.primarySoft,
-    color: colors.primaryDark,
-    fontSize: 10,
-    fontWeight: '800',
-    overflow: 'hidden',
-  },
-  minutes: {
+  minutesNumber: {
     color: colors.text,
-    fontSize: 42,
+    fontSize: 58,
     fontWeight: '900',
     letterSpacing: 0,
+    lineHeight: 64,
+  },
+  minutesUnit: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: '900',
+    marginLeft: spacing.sm,
+    marginBottom: 8,
+  },
+  minutesText: {
+    color: colors.text,
+    fontSize: 40,
+    fontWeight: '900',
+    lineHeight: 48,
+    marginTop: spacing.sm,
+  },
+  notRecorded: {
+    color: colors.text,
+    fontSize: 31,
+    fontWeight: '900',
+    marginTop: spacing.sm,
   },
   meta: {
-    color: colors.muted,
+    color: colors.textSoft,
     fontSize: 15,
     fontWeight: '700',
     marginTop: spacing.sm,
@@ -483,31 +525,84 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     marginTop: spacing.sm,
   },
   todayDate: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: '700',
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
   },
-  todayUpdatedAt: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '700',
+  clock: {
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    backgroundColor: 'rgba(255,255,255,0.84)',
+    borderWidth: 8,
+    borderColor: 'rgba(255,255,255,0.54)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  clockTick: {
+    position: 'absolute',
+    width: 4,
+    height: 9,
+    borderRadius: 2,
+    backgroundColor: '#FF8B40',
+  },
+  clockTickTop: {
+    top: 13,
+  },
+  clockTickRight: {
+    right: 15,
+    transform: [{ rotate: '90deg' }],
+  },
+  clockTickBottom: {
+    bottom: 13,
+  },
+  clockTickLeft: {
+    left: 15,
+    transform: [{ rotate: '90deg' }],
+  },
+  clockHandLong: {
+    position: 'absolute',
+    width: 6,
+    height: 43,
+    borderRadius: 3,
+    backgroundColor: '#FF7B25',
+    transform: [{ translateY: -15 }, { rotate: '-24deg' }],
+  },
+  clockHandShort: {
+    position: 'absolute',
+    width: 6,
+    height: 33,
+    borderRadius: 3,
+    backgroundColor: '#FF7B25',
+    transform: [{ translateY: 12 }, { rotate: '-28deg' }],
+  },
+  clockCenter: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FF7B25',
   },
   sectionHeader: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
   },
   recordList: {
     gap: spacing.sm,
   },
   recordRow: {
-    minHeight: 52,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
+    minHeight: 68,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
@@ -520,22 +615,38 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   recordDate: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  recordWeekday: {
     color: colors.text,
     fontSize: 15,
     fontWeight: '800',
   },
   recordTime: {
-    color: colors.muted,
-    fontSize: 12,
+    color: colors.textSoft,
+    fontSize: 13,
     fontWeight: '700',
+    marginTop: 3,
+  },
+  recordValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
   },
   recordMinutes: {
     color: colors.info,
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '900',
+  },
+  recordUnitText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
   },
   emptyBox: {
     minHeight: 144,
@@ -557,7 +668,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 22,
+    bottom: 92,
     alignItems: 'center',
   },
   });

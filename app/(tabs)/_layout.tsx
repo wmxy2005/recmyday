@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { type BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs } from 'expo-router';
 import { StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -49,15 +48,17 @@ function AnimatedTabBarButton({
 
   return (
     <Animated.View style={[style, styles.tabBarButton, animatedStyle]}>
-      <Animated.View pointerEvents="none" style={[styles.gradientBackground, gradientStyle]}>
-        <LinearGradient
-          colors={[colors.primarySoft, `${colors.primarySoft}99`, `${colors.primarySoft}00`]}
-          end={{ x: 0.5, y: 1 }}
-          locations={[0, 0.55, 1]}
-          start={{ x: 0.5, y: 0 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.pressedHalo,
+          {
+            backgroundColor: colors.primarySoft,
+            shadowColor: colors.primary,
+          },
+          gradientStyle,
+        ]}
+      />
       <PlatformPressable
         {...rest}
         onPressIn={(event) => {
@@ -108,18 +109,25 @@ export default function TabLayout() {
         tabBarButton: (props) => <AnimatedTabBarButton {...props} />,
         tabBarStyle: {
           backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          height: 56,
-          paddingBottom: 0,
-          paddingTop: 0,
+          borderTopColor: 'transparent',
+          position: 'absolute',
+          left: 16,
+          right: 16,
+          bottom: 12,
+          height: 76,
+          paddingBottom: 10,
+          paddingTop: 8,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
           shadowColor: isDark ? '#000000' : '#10231B',
           shadowOffset: { width: 0, height: -8 },
-          shadowOpacity: isDark ? 0.2 : 0.05,
-          shadowRadius: 18,
-          elevation: 8,
+          shadowOpacity: isDark ? 0.2 : 0.08,
+          shadowRadius: 22,
+          elevation: 12,
         },
         tabBarItemStyle: {
-          height: 56,
+          height: 58,
           paddingVertical: 0,
           alignItems: 'center',
           justifyContent: 'center',
@@ -130,8 +138,8 @@ export default function TabLayout() {
         },
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '700',
-          lineHeight: 12,
+          fontWeight: '800',
+          lineHeight: 14,
         },
       }}
     >
@@ -146,7 +154,7 @@ export default function TabLayout() {
         name="stats"
         options={{
           title: t('tabs.stats'),
-          tabBarIcon: tabIcon('calendar-outline', 'calendar'),
+          tabBarIcon: tabIcon('bar-chart-outline', 'bar-chart'),
         }}
       />
       <Tabs.Screen
@@ -169,12 +177,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  gradientBackground: {
-    ...StyleSheet.absoluteFillObject,
-    marginHorizontal: 0,
-    marginVertical: 0,
-    borderRadius: 0,
-    overflow: 'hidden',
+  pressedHalo: {
+    position: 'absolute',
+    top: 6,
+    width: 76,
+    height: 46,
+    borderRadius: 23,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    elevation: 7,
   },
   tabBarPressable: {
     flex: 1,

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +39,9 @@ import {
   getMonthCalendarCells,
   type RecordUnit,
 } from '@/utils/date';
+import { getRecordMinutesColor } from '@/utils/recordColor';
+
+const chartBars = [34, 52, 74, 100, 67, 88, 112];
 
 function formatDateTime(value: string | undefined, emptyLabel: string) {
   if (!value) {
@@ -219,122 +223,139 @@ export default function StatsScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-        <View style={styles.header}>
+        <View style={styles.titleHeader}>
+          <Text style={styles.screenTitle}>统计</Text>
+        </View>
+
+        <View style={styles.monthSelector}>
           <Pressable
             accessibilityRole="button"
             onPress={() => handleChangeMonth(-1)}
             style={styles.monthButton}
           >
-            <Ionicons color={colors.text} name="chevron-back" size={22} />
+            <Ionicons color={colors.text} name="chevron-back" size={23} />
           </Pressable>
 
-          <View style={styles.monthTitleGroup}>
-            {!isCurrentMonth ? (
-              <Pressable
-                accessibilityLabel={t('stats.goToCurrentMonth')}
-                accessibilityRole="button"
-                onPress={handleGoToCurrentMonth}
-                style={({ pressed }) => [
-                  styles.currentMonthButton,
-                  pressed && styles.currentMonthButtonPressed,
-                ]}
-              >
-                <Ionicons
-                  color={colors.primary}
-                  name="navigate-circle"
-                  size={22}
-                  style={styles.currentMonthIcon}
-                />
-              </Pressable>
-            ) : null}
+          <Pressable
+            accessibilityLabel={t('stats.goToCurrentMonth')}
+            accessibilityRole="button"
+            disabled={isCurrentMonth}
+            onPress={handleGoToCurrentMonth}
+            style={styles.monthTitleGroup}
+          >
             <Text style={styles.monthTitle}>{formatMonthTitle(monthDate)}</Text>
-          </View>
+            <Ionicons color={colors.text} name="caret-down" size={13} />
+          </Pressable>
 
           <Pressable
             accessibilityRole="button"
             onPress={() => handleChangeMonth(1)}
             style={styles.monthButton}
           >
-            <Ionicons color={colors.text} name="chevron-forward" size={22} />
+            <Ionicons color={colors.highlight} name="chevron-forward" size={23} />
           </Pressable>
         </View>
 
-        <View style={styles.summary}>
-          <Text style={styles.summaryLabel}>{t('stats.monthTotal')}</Text>
-          {isLoading ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <Text style={styles.summaryValue}>{formatDuration(totalMinutes, recordUnit)}</Text>
-          )}
-        </View>
+        <LinearGradient
+          colors={['#14BDB4', '#5FD9CD', '#BEEFE6']}
+          end={{ x: 1, y: 0 }}
+          start={{ x: 0, y: 1 }}
+          style={styles.summary}
+        >
+          <View>
+            <Text style={styles.summaryLabel}>{t('stats.monthTotal')}</Text>
+            {isLoading ? (
+              <ActivityIndicator color={colors.surface} />
+            ) : (
+              <Text style={styles.summaryValue}>{formatDuration(totalMinutes, recordUnit)}</Text>
+            )}
+          </View>
+          <View style={styles.chart}>
+            {chartBars.map((height, index) => (
+              <View
+                key={`${height}-${index}`}
+                style={[
+                  styles.chartBar,
+                  {
+                    height,
+                    backgroundColor: index > 4 ? colors.primary : '#139EAC',
+                    opacity: 0.66 + index * 0.04,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        </LinearGradient>
 
-        <View style={styles.weekHeader}>
-          {weekdays.map((weekday) => (
-            <Text key={weekday} style={styles.weekday}>
-              {weekday}
-            </Text>
-          ))}
-        </View>
+        <View style={styles.calendarCard}>
+          <View style={styles.weekHeader}>
+            {weekdays.map((weekday) => (
+              <Text key={weekday} style={styles.weekday}>
+                {weekday}
+              </Text>
+            ))}
+          </View>
 
-        <View style={styles.calendarGrid}>
-          {calendarWeeks.map((week, weekIndex) => (
-            <View key={`week-${weekIndex}`} style={styles.calendarWeek}>
-              {week.map((cell, dayIndex) => {
-                const record = cell.dayKey ? recordMap[cell.dayKey] : undefined;
-                const hasRecord = Boolean(record);
-                const isWeekend = dayIndex >= 5;
-                const isToday = cell.dayKey === todayKey;
+          <View style={styles.calendarGrid}>
+            {calendarWeeks.map((week, weekIndex) => (
+              <View key={`week-${weekIndex}`} style={styles.calendarWeek}>
+                {week.map((cell) => {
+                  const record = cell.dayKey ? recordMap[cell.dayKey] : undefined;
+                  const isToday = cell.dayKey === todayKey;
+                  const isSelected = selectedDayKey !== null && selectedDayKey === cell.dayKey;
 
-                return (
-                  <Pressable
-                    key={cell.key}
-                    accessibilityRole={cell.day ? 'button' : undefined}
-                    disabled={!cell.dayKey}
-                    onPress={() => {
-                      if (cell.dayKey) {
-                        handleSelectDay(cell.dayKey);
-                      }
-                    }}
-                    style={[
-                      styles.dayCell,
-                      !cell.day && styles.emptyCell,
-                      cell.day && isWeekend ? styles.weekendCell : null,
-                      hasRecord && styles.dayCellWithRecord,
-                      isToday && styles.todayCell,
-                      selectedDayKey !== null &&
-                        selectedDayKey === cell.dayKey &&
-                        styles.dayCellSelected,
-                    ]}
-                  >
-                    {cell.day ? (
-                      <>
-                        <Text
-                          style={[
-                            styles.dayNumber,
-                            hasRecord && styles.dayNumberActive,
-                            isToday && styles.todayDayNumber,
-                          ]}
-                        >
-                          {cell.day}
-                        </Text>
-                        <Text
-                          numberOfLines={1}
-                          adjustsFontSizeToFit
-                          style={[
-                            styles.dayMinutes,
-                            hasRecord && styles.dayMinutesActive,
-                            isToday && styles.todayDayMinutes,
-                          ]}
-                        >
-                          {record ? formatDuration(record.minutes_since_start, recordUnit) : ''}
-                        </Text>
-                      </>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-          ))}
+                  return (
+                    <Pressable
+                      key={cell.key}
+                      accessibilityRole={cell.day ? 'button' : undefined}
+                      disabled={!cell.dayKey}
+                      onPress={() => {
+                        if (cell.dayKey) {
+                          handleSelectDay(cell.dayKey);
+                        }
+                      }}
+                      style={[
+                        styles.dayCell,
+                        !cell.day && styles.emptyCell,
+                        isToday && styles.todayCell,
+                        isSelected && styles.dayCellSelected,
+                      ]}
+                    >
+                      {cell.day ? (
+                        <>
+                          <Text
+                            style={[
+                              styles.dayNumber,
+                              isToday && styles.todayDayNumber,
+                            ]}
+                          >
+                            {cell.day}
+                          </Text>
+                          <Text
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            style={[
+                              styles.dayMinutes,
+                              record && {
+                                color: getRecordMinutesColor(record.minutes_since_start),
+                              },
+                              isToday && styles.todayDayMinutes,
+                            ]}
+                          >
+                            {record
+                              ? recordUnit === 'minutes'
+                                ? record.minutes_since_start
+                                : formatDuration(record.minutes_since_start, recordUnit)
+                              : ''}
+                          </Text>
+                        </>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
         </View>
 
         {selectedDayKey ? (
@@ -455,116 +476,146 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   content: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: 132,
   },
-  header: {
+  titleHeader: {
+    minHeight: 54,
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  screenTitle: {
+    color: colors.text,
+    fontSize: 31,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  monthSelector: {
+    minHeight: 62,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
-  },
-  monthButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderWidth: 1,
-  },
-  monthTitleGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  currentMonthButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primarySoft,
-    alignSelf: 'center',
-  },
-  currentMonthButtonPressed: {
-    opacity: 0.6,
-  },
-  currentMonthIcon: {
-    height: 22,
-    lineHeight: 22,
-    textAlignVertical: 'center',
-  },
-  monthTitle: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 28,
-    includeFontPadding: false,
-  },
-  summary: {
-    minHeight: 104,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surfaceElevated,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.lg,
     ...shadow,
   },
+  monthButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  monthTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    minWidth: 160,
+  },
+  monthTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 24,
+    includeFontPadding: false,
+  },
+  summary: {
+    minHeight: 142,
+    padding: spacing.xl,
+    borderRadius: radius.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+    ...shadow,
+    overflow: 'hidden',
+  },
   summaryLabel: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '800',
-    marginBottom: spacing.xs,
-    textTransform: 'uppercase',
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: spacing.sm,
+    textShadowColor: 'rgba(0,0,0,0.12)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   summaryValue: {
-    color: colors.text,
-    fontSize: 34,
+    color: colors.surface,
+    fontSize: 42,
     fontWeight: '900',
+    lineHeight: 48,
+    textShadowColor: 'rgba(0,0,0,0.16)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 3,
+  },
+  chart: {
+    width: 126,
+    height: 104,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+    gap: 9,
+  },
+  chartBar: {
+    width: 12,
+    borderRadius: 4,
   },
   weekHeader: {
     flexDirection: 'row',
-    gap: 5,
-    marginBottom: spacing.xs,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    marginBottom: spacing.sm,
   },
   weekday: {
     flex: 1,
-    color: colors.muted,
+    color: colors.textSoft,
     textAlign: 'center',
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '800',
   },
+  calendarCard: {
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.lg,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow,
+  },
   calendarGrid: {
-    gap: 5,
+    gap: spacing.sm,
   },
   calendarWeek: {
     flexDirection: 'row',
-    gap: 5,
+    gap: spacing.xs,
   },
   dayCell: {
     flex: 1,
-    aspectRatio: 0.88,
-    padding: spacing.xs,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 2,
-    borderColor: colors.border,
-    justifyContent: 'space-between',
-  },
-  weekendCell: {
-    backgroundColor: colors.infoSoft,
-  },
-  dayCellWithRecord: {
-    backgroundColor: colors.primarySoft,
+    aspectRatio: 0.94,
+    paddingVertical: spacing.xs,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   todayCell: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 3,
   },
   dayCellSelected: {
     borderColor: colors.highlight,
@@ -575,24 +626,20 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   dayNumber: {
     color: colors.text,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '900',
     textAlign: 'center',
-  },
-  dayNumberActive: {
-    color: colors.primaryDark,
   },
   todayDayNumber: {
     color: colors.surface,
   },
   dayMinutes: {
     color: colors.muted,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     textAlign: 'center',
-  },
-  dayMinutesActive: {
-    color: colors.primaryDark,
+    minHeight: 15,
+    marginTop: 2,
   },
   todayDayMinutes: {
     color: colors.surface,
