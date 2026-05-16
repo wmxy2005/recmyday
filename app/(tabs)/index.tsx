@@ -14,7 +14,6 @@ import {
 import { useTranslation } from 'react-i18next';
 import {
   Easing,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -26,10 +25,13 @@ import {
   type DayRecord,
   getCurrentDayKey,
   getCurrentDayRecord,
+  getDayRecordsByDayKey,
   getRecentRecords,
   getRecentRecordLimit,
   getRecordUnit,
+  getSeparateRecordEnabled,
   getStartTimeMinutes,
+  insertSeparateRecord,
   upsertCurrentRecord,
 } from '@/data/database';
 import { radius, spacing, useAppTheme } from '@/theme';
@@ -49,13 +51,58 @@ function getIsBeforeStartTime(startTimeMinutes: number) {
 }
 
 function formatRecordRange(record: DayRecord, startTimeMinutes: number) {
-  const start = formatTimeFromMinutes(startTimeMinutes);
-  const end = new Date(record.recorded_at).toLocaleTimeString([], {
+  const endDate = new Date(record.recorded_at);
+  const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
+  const start = startDate.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const end = endDate.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   });
 
-  return `${start} - ${end}`;
+  const displayStart =
+    record.minutes_since_start > 0 ? start : formatTimeFromMinutes(startTimeMinutes);
+
+  return `${displayStart} - ${end}`;
+}
+
+function formatRecordsRange(records: DayRecord[], startTimeMinutes: number) {
+  if (records.length === 0) {
+    return '';
+  }
+
+  const range = records.reduce(
+    (currentRange, record) => {
+      const endDate = new Date(record.recorded_at);
+      const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
+
+      return {
+        end: Math.max(currentRange.end, endDate.getTime()),
+        start: Math.min(currentRange.start, startDate.getTime()),
+      };
+    },
+    {
+      end: Number.NEGATIVE_INFINITY,
+      start: Number.POSITIVE_INFINITY,
+    },
+  );
+
+  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) {
+    return '';
+  }
+
+  const start = new Date(range.start).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const end = new Date(range.end).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return `${startTimeMinutes >= 0 ? start : formatTimeFromMinutes(startTimeMinutes)} - ${end}`;
 }
 
 function parseRecordTime(value: string) {
@@ -87,11 +134,6 @@ function getClockHandsFromRecord(record: DayRecord | null) {
   };
 }
 
-const todayRecordButtonVisibility = {
-  dayKey: '',
-  visible: false,
-};
-
 export default function HomeScreen() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -101,10 +143,15 @@ export default function HomeScreen() {
   const db = useSQLiteContext();
   const [currentDayKey, setCurrentDayKey] = useState('');
   const [todayRecord, setTodayRecord] = useState<DayRecord | null>(null);
+  const [todayRecords, setTodayRecords] = useState<DayRecord[]>([]);
   const [records, setRecords] = useState<DayRecord[]>([]);
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [recentRecordLimit, setRecentRecordLimit] = useState(5);
+  const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
+  const [activeSeparateRecordStartedAt, setActiveSeparateRecordStartedAt] = useState<Date | null>(
+    null,
+  );
   const [isBeforeStartTime, setIsBeforeStartTime] = useState(() => getIsBeforeStartTime(0));
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
@@ -113,69 +160,52 @@ export default function HomeScreen() {
   const [recordButtonMounted, setRecordButtonMounted] = useState(false);
   const hasLoadedRef = useRef(false);
   const skipRecordButtonAnimationRef = useRef(true);
-  const recordButtonHideAnimationRef = useRef(false);
   /** Start hidden so we never paint a full-size button before visibility is synced (avoids a bogus “hide” on first load). */
   const recordButtonScale = useSharedValue(0);
-
-  const finishHidingRecordButton = useCallback(() => {
-    recordButtonHideAnimationRef.current = false;
-    setIsHidingRecordButton(false);
-    setRecordButtonMounted(false);
-  }, []);
-
-  const startHideRecordButton = useCallback(() => {
-    if (recordButtonHideAnimationRef.current) {
-      return;
-    }
-
-    recordButtonHideAnimationRef.current = true;
-    setIsHidingRecordButton(true);
-    recordButtonScale.value = withTiming(
-      0,
-      {
-        duration: 220,
-        easing: Easing.in(Easing.cubic),
-      },
-      (finished) => {
-        if (finished) {
-          runOnJS(finishHidingRecordButton)();
-        }
-      },
-    );
-  }, [finishHidingRecordButton, recordButtonScale]);
+  const singleRecordButtonVisibilityRef = useRef({
+    dayKey: '',
+    visible: false,
+  });
 
   const loadData = useCallback(async (showLoading = false) => {
     if (showLoading) {
       setIsLoading(true);
     }
 
-    const [startTime, unit, limit] = await Promise.all([
+    const [startTime, unit, limit, separateEnabled] = await Promise.all([
       getStartTimeMinutes(db),
       getRecordUnit(db),
       getRecentRecordLimit(db),
+      getSeparateRecordEnabled(db),
     ]);
     const [dayKey, currentRecord, recentRecords] = await Promise.all([
       getCurrentDayKey(db),
       getCurrentDayRecord(db),
-      getRecentRecords(db, limit + 1),
+      getRecentRecords(db, limit),
     ]);
+    const currentDayRecords = await getDayRecordsByDayKey(db, dayKey);
 
     setStartTimeMinutes(startTime);
     setRecordUnit(unit);
     setRecentRecordLimit(limit);
+    setSeparateRecordEnabled(separateEnabled);
+    if (separateEnabled) {
+      setActiveSeparateRecordStartedAt(null);
+    }
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
+    setTodayRecords(currentDayRecords);
     setShowRecordButton(() => {
       const isBeforeStartTimeNow = getIsBeforeStartTime(startTime);
 
-      if (!currentRecord) {
+      if (!separateEnabled || !currentRecord) {
         return !isBeforeStartTimeNow;
       }
 
       return (
         !isBeforeStartTimeNow &&
-        todayRecordButtonVisibility.dayKey === dayKey &&
-        todayRecordButtonVisibility.visible
+        singleRecordButtonVisibilityRef.current.dayKey === dayKey &&
+        singleRecordButtonVisibilityRef.current.visible
       );
     });
     setRecords(recentRecords);
@@ -204,13 +234,27 @@ export default function HomeScreen() {
   const previousRecords = useMemo(
     () =>
       records
-        .filter((record) => record.day_key !== currentDayKey)
+        .filter((record) => !separateRecordEnabled || record.day_key !== currentDayKey)
         .slice(0, recentRecordLimit),
-    [currentDayKey, recentRecordLimit, records],
+    [currentDayKey, recentRecordLimit, records, separateRecordEnabled],
   );
+  const todayTotalMinutes = useMemo(
+    () => todayRecords.reduce((sum, record) => sum + record.minutes_since_start, 0),
+    [todayRecords],
+  );
+  const todayDisplayRange = separateRecordEnabled
+    ? todayRecord
+      ? formatRecordRange(todayRecord, startTimeMinutes)
+      : ''
+    : formatRecordsRange(todayRecords, startTimeMinutes);
 
   const shouldShowRecordButtonArea =
-    !isLoading && !isBeforeStartTime && (!todayRecord || showRecordButton);
+    !isLoading &&
+    !isBeforeStartTime &&
+    (!separateRecordEnabled ||
+      !todayRecord ||
+      showRecordButton ||
+      Boolean(activeSeparateRecordStartedAt));
 
   const recordButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: recordButtonScale.value }],
@@ -218,7 +262,6 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const snapRecordButtonVisibility = (visible: boolean) => {
-      recordButtonHideAnimationRef.current = false;
       setIsHidingRecordButton(false);
       recordButtonScale.value = visible ? 1 : 0;
       setRecordButtonMounted(visible);
@@ -230,13 +273,12 @@ export default function HomeScreen() {
       return;
     }
 
-    if (isBeforeStartTime || !todayRecord) {
+    if (separateRecordEnabled || isBeforeStartTime || !todayRecord) {
       snapRecordButtonVisibility(shouldShowRecordButtonArea);
       return;
     }
 
     if (showRecordButton) {
-      recordButtonHideAnimationRef.current = false;
       setIsHidingRecordButton(false);
       setRecordButtonMounted(true);
       recordButtonScale.value = withTiming(1, {
@@ -246,8 +288,6 @@ export default function HomeScreen() {
       return;
     }
 
-    // Toggle / default hidden: snap off without shrink animation. Recording still uses
-    // `startHideRecordButton` from `handleRecord`; skip while that animation is in flight.
     if (isRecording) {
       return;
     }
@@ -260,6 +300,7 @@ export default function HomeScreen() {
     recordButtonScale,
     shouldShowRecordButtonArea,
     showRecordButton,
+    separateRecordEnabled,
     todayRecord,
   ]);
 
@@ -269,12 +310,25 @@ export default function HomeScreen() {
     }
 
     setIsRecording(true);
-    startHideRecordButton();
 
     try {
+      if (!separateRecordEnabled) {
+        if (!activeSeparateRecordStartedAt) {
+          setActiveSeparateRecordStartedAt(new Date());
+          return;
+        }
+
+        await insertSeparateRecord(db, activeSeparateRecordStartedAt);
+        setActiveSeparateRecordStartedAt(null);
+        await loadData();
+        return;
+      }
+
       await upsertCurrentRecord(db);
-      todayRecordButtonVisibility.dayKey = currentDayKey;
-      todayRecordButtonVisibility.visible = false;
+      singleRecordButtonVisibilityRef.current = {
+        dayKey: currentDayKey,
+        visible: false,
+      };
       setShowRecordButton(false);
       await loadData();
     } finally {
@@ -282,15 +336,21 @@ export default function HomeScreen() {
     }
   };
 
+  const handleCancelActiveRecord = () => {
+    setActiveSeparateRecordStartedAt(null);
+  };
+
   const handleToggleRecordButton = () => {
-    if (!todayRecord || isBeforeStartTime) {
+    if (!separateRecordEnabled || !todayRecord || isBeforeStartTime) {
       return;
     }
 
     setShowRecordButton((current) => {
       const next = !current;
-      todayRecordButtonVisibility.dayKey = todayRecord.day_key;
-      todayRecordButtonVisibility.visible = next;
+      singleRecordButtonVisibilityRef.current = {
+        dayKey: todayRecord.day_key,
+        visible: next,
+      };
       return next;
     });
   };
@@ -305,9 +365,25 @@ export default function HomeScreen() {
     });
   };
 
-  const canToggleRecordButton = Boolean(todayRecord && !isBeforeStartTime);
-  const isTodayPanelSelected = Boolean(todayRecord && showRecordButton);
+  const canToggleRecordButton = Boolean(
+    separateRecordEnabled && todayRecord && !isBeforeStartTime,
+  );
+  const isTodayPanelSelected = Boolean(separateRecordEnabled && todayRecord && showRecordButton);
   const todayClockHands = useMemo(() => getClockHandsFromRecord(todayRecord), [todayRecord]);
+  const recordButtonLabel = separateRecordEnabled
+    ? todayRecord
+      ? t('home.updateRecord')
+      : t('home.createRecord')
+    : activeSeparateRecordStartedAt
+      ? t('home.endRecord')
+      : t('home.startRecord');
+  const recordButtonTone = separateRecordEnabled
+    ? todayRecord
+      ? 'primary'
+      : 'success'
+    : activeSeparateRecordStartedAt
+      ? 'danger'
+      : 'success';
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
@@ -350,29 +426,28 @@ export default function HomeScreen() {
                 <>
                   {recordUnit === 'minutes' ? (
                     <View style={styles.minutesRow}>
-                      <Text style={styles.minutesNumber}>{todayRecord.minutes_since_start}</Text>
+                      <Text style={styles.minutesNumber}>
+                        {separateRecordEnabled ? todayRecord.minutes_since_start : todayTotalMinutes}
+                      </Text>
                       <Text style={styles.minutesUnit}>{t('date.minutesFullUnit')}</Text>
                     </View>
                   ) : (
                     <Text style={styles.minutesText}>
-                      {formatDuration(todayRecord.minutes_since_start, recordUnit)}
+                      {formatDuration(
+                        separateRecordEnabled ? todayRecord.minutes_since_start : todayTotalMinutes,
+                        recordUnit,
+                      )}
                     </Text>
                   )}
                   <View style={styles.todayMetaRow}>
-                    <Text style={styles.todayDate}>{formatRecordRange(todayRecord, startTimeMinutes)}</Text>
+                    <Text style={styles.todayDate}>{todayDisplayRange}</Text>
                     <Ionicons color={colors.textSoft} name="create" size={17} />
                   </View>
                 </>
               ) : (
                 <>
                   <Text style={styles.notRecorded}>{t('home.notRecorded')}</Text>
-                  <Text style={styles.meta}>
-                    {isBeforeStartTime
-                      ? t('home.startTime', { time: formatTimeFromMinutes(startTimeMinutes) })
-                      : currentDayKey
-                        ? t('home.recordAvailable', { weekday: formatWeekdayLabel(currentDayKey) })
-                        : ''}
-                  </Text>
+                  <Text style={styles.meta}> </Text>
                 </>
               )}
             </View>
@@ -418,7 +493,7 @@ export default function HomeScreen() {
             </View>
           ) : (
             previousRecords.map((record) => (
-              <View key={record.day_key} style={styles.recordRow}>
+              <View key={record.id} style={styles.recordRow}>
                 <View>
                   <View style={styles.recordDateRow}>
                     <Text style={styles.recordDate}>{formatDayLabel(record.day_key)}</Text>
@@ -470,10 +545,23 @@ export default function HomeScreen() {
           <RecordButton
             animatedStyle={recordButtonAnimatedStyle}
             disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
-            hasRecord={Boolean(todayRecord)}
+            hasRecord={separateRecordEnabled && Boolean(todayRecord)}
+            iconName={
+              !separateRecordEnabled
+                ? activeSeparateRecordStartedAt
+                  ? 'stop'
+                  : 'play'
+                : undefined
+            }
             isRecording={isRecording}
+            label={recordButtonLabel}
+            onCancelRecording={handleCancelActiveRecord}
             onPress={handleRecord}
             pointerEvents={shouldShowRecordButtonArea && !isHidingRecordButton ? 'auto' : 'none'}
+            recordingStartedAt={!separateRecordEnabled ? activeSeparateRecordStartedAt : null}
+            recordingUnitLabel={t('date.minutesShortUnit')}
+            secondsUnitLabel={t('date.secondsShortUnit')}
+            tone={recordButtonTone}
           />
         </View>
       ) : null}

@@ -9,10 +9,11 @@ import {
 
 export const databaseName = 'rec-my-day.db';
 
-const databaseVersion = 3;
+const databaseVersion = 5;
 const defaultStartTimeMinutes = 0;
 const defaultRecordUnit: RecordUnit = 'minutes';
 const defaultRecentRecordLimit = 5;
+const defaultSeparateRecordEnabled = false;
 
 export type DayRecord = {
   id: number;
@@ -27,6 +28,10 @@ export type DayRecord = {
 type SettingRow = {
   value: string;
 };
+
+function boolToSettingValue(value: boolean) {
+  return value ? '1' : '0';
+}
 
 export async function migrateDatabase(db: SQLiteDatabase) {
   const result = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
@@ -47,7 +52,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
 
       CREATE TABLE IF NOT EXISTS day_records (
         id INTEGER PRIMARY KEY NOT NULL,
-        day_key TEXT NOT NULL UNIQUE,
+        day_key TEXT NOT NULL,
         recorded_at TEXT NOT NULL,
         timestamp_ms INTEGER NOT NULL,
         minutes_since_start INTEGER NOT NULL,
@@ -79,6 +84,53 @@ export async function migrateDatabase(db: SQLiteDatabase) {
       'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
       'recent_record_limit',
       String(defaultRecentRecordLimit),
+    );
+  }
+
+  if (currentVersion < 4) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS day_records_v4 (
+        id INTEGER PRIMARY KEY NOT NULL,
+        day_key TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        timestamp_ms INTEGER NOT NULL,
+        minutes_since_start INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO day_records_v4 (
+        id,
+        day_key,
+        recorded_at,
+        timestamp_ms,
+        minutes_since_start,
+        created_at,
+        updated_at
+      )
+      SELECT
+        id,
+        day_key,
+        recorded_at,
+        timestamp_ms,
+        minutes_since_start,
+        created_at,
+        updated_at
+      FROM day_records;
+
+      DROP TABLE day_records;
+      ALTER TABLE day_records_v4 RENAME TO day_records;
+
+      CREATE INDEX IF NOT EXISTS idx_day_records_day_key
+      ON day_records(day_key);
+    `);
+  }
+
+  if (currentVersion < 5) {
+    await db.runAsync(
+      'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
+      'separate_record_enabled',
+      boolToSettingValue(defaultSeparateRecordEnabled),
     );
   }
 
@@ -166,11 +218,55 @@ export async function setRecentRecordLimit(db: SQLiteDatabase, limit: number) {
   return normalizedLimit;
 }
 
+export async function getSeparateRecordEnabled(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<SettingRow>(
+    'SELECT value FROM settings WHERE key = ?',
+    'separate_record_enabled',
+  );
+
+  return row?.value === '1';
+}
+
+export async function setSeparateRecordEnabled(db: SQLiteDatabase, enabled: boolean) {
+  await db.runAsync(
+    `
+      INSERT INTO settings (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `,
+    'separate_record_enabled',
+    boolToSettingValue(enabled),
+  );
+
+  return enabled;
+}
+
 export async function upsertCurrentRecord(db: SQLiteDatabase, date = new Date()) {
   const startTimeMinutes = await getStartTimeMinutes(db);
   const dayKey = getLogicalDayKey(date, startTimeMinutes);
   const minutesSinceStart = getMinutesSinceDayStart(date, startTimeMinutes);
   const recordedAt = date.toISOString();
+  const existingRecord = await getRecordByDayKey(db, dayKey);
+
+  if (existingRecord) {
+    await db.runAsync(
+      `
+        UPDATE day_records
+        SET
+          recorded_at = ?,
+          timestamp_ms = ?,
+          minutes_since_start = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      recordedAt,
+      date.getTime(),
+      minutesSinceStart,
+      existingRecord.id,
+    );
+
+    return getRecordByDayKey(db, dayKey);
+  }
 
   await db.runAsync(
     `
@@ -182,16 +278,106 @@ export async function upsertCurrentRecord(db: SQLiteDatabase, date = new Date())
         updated_at
       )
       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(day_key) DO UPDATE SET
-        recorded_at = excluded.recorded_at,
-        timestamp_ms = excluded.timestamp_ms,
-        minutes_since_start = excluded.minutes_since_start,
-        updated_at = CURRENT_TIMESTAMP
     `,
     dayKey,
     recordedAt,
     date.getTime(),
     minutesSinceStart,
+  );
+
+  return getRecordByDayKey(db, dayKey);
+}
+
+export async function insertSeparateRecord(
+  db: SQLiteDatabase,
+  startedAt: Date,
+  endedAt = new Date(),
+) {
+  const startTimeMinutes = await getStartTimeMinutes(db);
+  const dayKey = getLogicalDayKey(endedAt, startTimeMinutes);
+  const minutes = Math.max(0, Math.ceil((endedAt.getTime() - startedAt.getTime()) / 60000));
+
+  await db.runAsync(
+    `
+      INSERT INTO day_records (
+        day_key,
+        recorded_at,
+        timestamp_ms,
+        minutes_since_start,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `,
+    dayKey,
+    endedAt.toISOString(),
+    endedAt.getTime(),
+    minutes,
+  );
+
+  return getRecordByDayKey(db, dayKey);
+}
+
+function getDateForDayTime(dayKey: string, minutes: number) {
+  const [year, month, day] = dayKey.split('-').map(Number);
+
+  return new Date(year, month - 1, day, Math.floor(minutes / 60), minutes % 60);
+}
+
+export async function insertManualRecord(
+  db: SQLiteDatabase,
+  dayKey: string,
+  startMinutes: number,
+  endMinutes: number,
+) {
+  const endedAt = getDateForDayTime(dayKey, endMinutes);
+  const minutes = Math.max(0, Math.trunc(endMinutes - startMinutes));
+
+  await db.runAsync(
+    `
+      INSERT INTO day_records (
+        day_key,
+        recorded_at,
+        timestamp_ms,
+        minutes_since_start,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `,
+    dayKey,
+    endedAt.toISOString(),
+    endedAt.getTime(),
+    minutes,
+  );
+
+  return getRecordByDayKey(db, dayKey);
+}
+
+export async function updateManualRecordById(
+  db: SQLiteDatabase,
+  id: number,
+  dayKey: string,
+  startMinutes: number,
+  endMinutes: number,
+) {
+  const endedAt = getDateForDayTime(dayKey, endMinutes);
+  const minutes = Math.max(0, Math.trunc(endMinutes - startMinutes));
+
+  await db.runAsync(
+    `
+      UPDATE day_records
+      SET
+        day_key = ?,
+        recorded_at = ?,
+        timestamp_ms = ?,
+        minutes_since_start = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `,
+    dayKey,
+    endedAt.toISOString(),
+    endedAt.getTime(),
+    minutes,
+    id,
   );
 
   return getRecordByDayKey(db, dayKey);
@@ -215,9 +401,6 @@ export async function upsertRecordMinutes(
         updated_at
       )
       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(day_key) DO UPDATE SET
-        minutes_since_start = excluded.minutes_since_start,
-        updated_at = CURRENT_TIMESTAMP
     `,
     dayKey,
     now.toISOString(),
@@ -229,11 +412,25 @@ export async function upsertRecordMinutes(
 }
 
 export async function getRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
-  return db.getFirstAsync<DayRecord>('SELECT * FROM day_records WHERE day_key = ?', dayKey);
+  return db.getFirstAsync<DayRecord>(
+    'SELECT * FROM day_records WHERE day_key = ? ORDER BY timestamp_ms DESC LIMIT 1',
+    dayKey,
+  );
+}
+
+export async function getDayRecordsByDayKey(db: SQLiteDatabase, dayKey: string) {
+  return db.getAllAsync<DayRecord>(
+    'SELECT * FROM day_records WHERE day_key = ? ORDER BY timestamp_ms ASC',
+    dayKey,
+  );
 }
 
 export async function deleteRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
   await db.runAsync('DELETE FROM day_records WHERE day_key = ?', dayKey);
+}
+
+export async function deleteRecordById(db: SQLiteDatabase, id: number) {
+  await db.runAsync('DELETE FROM day_records WHERE id = ?', id);
 }
 
 export async function getCurrentDayRecord(db: SQLiteDatabase, date = new Date()) {
@@ -249,7 +446,7 @@ export async function getCurrentDayKey(db: SQLiteDatabase, date = new Date()) {
 
 export async function getRecentRecords(db: SQLiteDatabase, limit = 8) {
   return db.getAllAsync<DayRecord>(
-    'SELECT * FROM day_records ORDER BY day_key DESC LIMIT ?',
+    'SELECT * FROM day_records ORDER BY day_key DESC, timestamp_ms DESC LIMIT ?',
     limit,
   );
 }
@@ -258,7 +455,7 @@ export async function getMonthRecords(db: SQLiteDatabase, monthDate: Date) {
   const monthKey = formatMonthKey(monthDate);
 
   return db.getAllAsync<DayRecord>(
-    'SELECT * FROM day_records WHERE day_key LIKE ? ORDER BY day_key ASC',
+    'SELECT * FROM day_records WHERE day_key LIKE ? ORDER BY day_key ASC, timestamp_ms ASC',
     `${monthKey}-%`,
   );
 }

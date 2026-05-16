@@ -2,31 +2,33 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
+  Animated,
+  Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   type DayRecord,
-  deleteRecordByDayKey,
+  deleteRecordById,
   getMonthRecords,
   getMonthTotalMinutes,
   getRecordUnit,
+  getSeparateRecordEnabled,
   getStartTimeMinutes,
-  upsertRecordMinutes,
+  insertManualRecord,
+  updateManualRecordById,
 } from '@/data/database';
 import { radius, spacing, useAppTheme } from '@/theme';
 import {
@@ -44,6 +46,14 @@ import { getRecordMinutesColor } from '@/utils/recordColor';
 
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
+const deleteActionWidth = 82;
+
+type EditorTimeSection = 'start' | 'end';
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
+
+function pad2(value: number) {
+  return String(value).padStart(2, '0');
+}
 
 function formatDateTime(value: string | undefined, emptyLabel: string) {
   if (!value) {
@@ -59,18 +69,56 @@ function formatDateTime(value: string | undefined, emptyLabel: string) {
   });
 }
 
-function cleanMinutesInput(value: string) {
-  return value.replace(/\D/g, '').slice(0, 5);
-}
-
 function formatRecordRange(record: DayRecord, startTimeMinutes: number) {
-  const start = formatTimeFromMinutes(startTimeMinutes);
-  const end = new Date(record.recorded_at).toLocaleTimeString([], {
+  const endDate = new Date(record.recorded_at);
+  const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
+  const start = startDate.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const end = endDate.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   });
 
-  return `${start} - ${end}`;
+  const displayStart =
+    record.minutes_since_start > 0 ? start : formatTimeFromMinutes(startTimeMinutes);
+
+  return `${displayStart} - ${end}`;
+}
+
+function getRecordStartEndMinutes(record: DayRecord) {
+  const endDate = new Date(record.recorded_at);
+  const endMinutes = endDate.getHours() * 60 + endDate.getMinutes();
+  const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
+  const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+
+  return { endMinutes, startMinutes };
+}
+
+function formatTimeInput(minutes: number) {
+  return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
+}
+
+function parseTimeInput(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function cleanTimeInput(value: string) {
+  return value.replace(/[^\d:]/g, '').slice(0, 5);
 }
 
 function getDateFromDayKey(dayKey: string) {
@@ -93,73 +141,21 @@ export default function StatsScreen() {
   const { colors } = theme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
-  const scrollViewRef = useRef<ScrollView>(null);
   const [monthDate, setMonthDate] = useState(() => new Date());
   const [records, setRecords] = useState<DayRecord[]>([]);
   const [totalMinutes, setTotalMinutes] = useState(0);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
+  const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
-  const [editedMinutes, setEditedMinutes] = useState('0');
+  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+  const [recordEditorVisible, setRecordEditorVisible] = useState(false);
+  const [draftStartTime, setDraftStartTime] = useState('09:00');
+  const [draftEndTime, setDraftEndTime] = useState('09:30');
+  const [expandedEditorTimeSection, setExpandedEditorTimeSection] =
+    useState<EditorTimeSection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [showEditorActions, setShowEditorActions] = useState(false);
   const hasLoadedRef = useRef(false);
-  const hideEditorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollEditorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearPendingEditorScroll = useCallback(() => {
-    if (scrollEditorTimerRef.current) {
-      clearTimeout(scrollEditorTimerRef.current);
-      scrollEditorTimerRef.current = null;
-    }
-  }, []);
-
-  const scrollEditorIntoView = useCallback((delay = 280) => {
-    clearPendingEditorScroll();
-
-    requestAnimationFrame(() => {
-      scrollEditorTimerRef.current = setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-        scrollEditorTimerRef.current = null;
-      }, delay);
-    });
-  }, [clearPendingEditorScroll]);
-
-  const clearPendingEditorHide = useCallback(() => {
-    if (hideEditorTimerRef.current) {
-      clearTimeout(hideEditorTimerRef.current);
-      hideEditorTimerRef.current = null;
-    }
-  }, []);
-
-  const hideEditorPanel = useCallback(() => {
-    clearPendingEditorHide();
-    clearPendingEditorScroll();
-    Keyboard.dismiss();
-    setShowEditorActions(false);
-
-    requestAnimationFrame(() => {
-      scrollViewRef.current?.scrollTo({ animated: true, y: 0 });
-    });
-    hideEditorTimerRef.current = setTimeout(() => {
-      setSelectedDayKey(null);
-      hideEditorTimerRef.current = null;
-    }, 320);
-  }, [clearPendingEditorHide, clearPendingEditorScroll]);
-
-  useEffect(() => {
-    return () => {
-      clearPendingEditorHide();
-      clearPendingEditorScroll();
-    };
-  }, [clearPendingEditorHide, clearPendingEditorScroll]);
-
-  useEffect(() => {
-    if (selectedDayKey && showEditorActions) {
-      scrollEditorIntoView();
-    }
-  }, [scrollEditorIntoView, selectedDayKey, showEditorActions]);
 
   useEffect(() => {
     if (!routeSelectedDayKey) {
@@ -175,27 +171,9 @@ export default function StatsScreen() {
       return;
     }
 
-    clearPendingEditorHide();
-    clearPendingEditorScroll();
     setMonthDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
     setSelectedDayKey(dayKey);
-  }, [
-    clearPendingEditorHide,
-    clearPendingEditorScroll,
-    routeSelectedDayKey,
-    selectedAt,
-  ]);
-
-  useEffect(() => {
-    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const subscription = Keyboard.addListener(eventName, () => {
-      if (selectedDayKey && showEditorActions) {
-        scrollEditorIntoView();
-      }
-    });
-
-    return () => subscription.remove();
-  }, [selectedDayKey, showEditorActions, scrollEditorIntoView]);
+  }, [routeSelectedDayKey, selectedAt]);
 
   const weekdays = t('stats.weekdaysShort', { returnObjects: true }) as string[];
 
@@ -204,16 +182,18 @@ export default function StatsScreen() {
       setIsLoading(true);
     }
 
-    const [monthRecords, total, unit, startTime] = await Promise.all([
+    const [monthRecords, total, unit, startTime, separateEnabled] = await Promise.all([
       getMonthRecords(db, monthDate),
       getMonthTotalMinutes(db, monthDate),
       getRecordUnit(db),
       getStartTimeMinutes(db),
+      getSeparateRecordEnabled(db),
     ]);
 
     setRecords(monthRecords);
     setTotalMinutes(total);
     setRecordUnit(unit);
+    setSeparateRecordEnabled(separateEnabled);
     setStartTimeMinutes(startTime);
     setIsLoading(false);
   }, [db, monthDate]);
@@ -226,12 +206,26 @@ export default function StatsScreen() {
     }, [loadData]),
   );
 
-  const recordMap = useMemo(() => {
-    return records.reduce<Record<string, DayRecord>>((map, record) => {
-      map[record.day_key] = record;
+  const recordsByDay = useMemo(() => {
+    return records.reduce<Record<string, DayRecord[]>>((map, record) => {
+      if (!map[record.day_key]) {
+        map[record.day_key] = [];
+      }
+
+      map[record.day_key].push(record);
       return map;
     }, {});
   }, [records]);
+
+  const dayTotals = useMemo(() => {
+    return Object.entries(recordsByDay).reduce<Record<string, number>>(
+      (map, [dayKey, dayRecords]) => {
+        map[dayKey] = dayRecords.reduce((sum, record) => sum + record.minutes_since_start, 0);
+        return map;
+      },
+      {},
+    );
+  }, [recordsByDay]);
 
   const cells = useMemo(() => getMonthCalendarCells(monthDate), [monthDate]);
   const isCurrentMonth = useMemo(() => {
@@ -250,13 +244,32 @@ export default function StatsScreen() {
     return weeks;
   }, [cells]);
   const todayKey = useMemo(() => formatDayKey(new Date()), []);
-  const selectedRecord = selectedDayKey ? recordMap[selectedDayKey] : undefined;
+  const selectedDayRecords = useMemo(() => {
+    const dayRecords = selectedDayKey ? recordsByDay[selectedDayKey] ?? [] : [];
+
+    return [...dayRecords].sort((left, right) => {
+      const leftRange = getRecordStartEndMinutes(left);
+      const rightRange = getRecordStartEndMinutes(right);
+
+      return (
+        rightRange.endMinutes - leftRange.endMinutes ||
+        rightRange.startMinutes - leftRange.startMinutes
+      );
+    });
+  }, [recordsByDay, selectedDayKey]);
+  const selectedDayTotal = selectedDayRecords.reduce(
+    (sum, record) => sum + record.minutes_since_start,
+    0,
+  );
+  const canCreateSelectedDayRecord =
+    selectedDayKey !== null && (!separateRecordEnabled || selectedDayRecords.length === 0);
   const chartRecords = useMemo(() => {
     const latestRecords = records.slice(-7);
     const maxMinutes = Math.max(...latestRecords.map((record) => record.minutes_since_start), 1);
 
     return latestRecords.map((record) => ({
       dayKey: record.day_key,
+      id: record.id,
       height: Math.max(
         chartMinHeight,
         Math.round((record.minutes_since_start / maxMinutes) * chartMaxHeight),
@@ -265,109 +278,137 @@ export default function StatsScreen() {
     }));
   }, [records]);
 
-  useEffect(() => {
-    if (selectedDayKey && !isSaving) {
-      setEditedMinutes(String(selectedRecord?.minutes_since_start ?? 0));
-    }
-  }, [isSaving, selectedDayKey, selectedRecord?.minutes_since_start]);
-
   const handleSelectDay = (dayKey: string) => {
     if (selectedDayKey === dayKey) {
-      clearPendingEditorHide();
-      clearPendingEditorScroll();
-      Keyboard.dismiss();
       setSelectedDayKey(null);
-      setEditedMinutes('0');
-      setShowEditorActions(false);
       return;
     }
 
-    const record = recordMap[dayKey];
-    clearPendingEditorHide();
-    clearPendingEditorScroll();
     setSelectedDayKey(dayKey);
-    setEditedMinutes(String(record?.minutes_since_start ?? 0));
   };
 
   const handleChangeMonth = (offset: number) => {
-    hideEditorPanel();
+    setSelectedDayKey(null);
     setMonthDate((current) => addMonths(current, offset));
   };
 
   const handleGoToCurrentMonth = () => {
-    hideEditorPanel();
+    setSelectedDayKey(null);
     setMonthDate(new Date());
   };
 
-  const handleSaveSelectedDay = async () => {
+  const handleDeleteRecord = async (recordId: number) => {
+    await deleteRecordById(db, recordId);
+    await loadData();
+  };
+
+  const handleOpenCreateRecord = () => {
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    setEditingRecordId(null);
+    setDraftStartTime(formatTimeInput(startTimeMinutes));
+    setDraftEndTime(formatTimeInput(currentMinutes));
+    setExpandedEditorTimeSection(null);
+    setRecordEditorVisible(true);
+  };
+
+  const handleOpenEditRecord = (record: DayRecord) => {
+    const { endMinutes, startMinutes } = getRecordStartEndMinutes(record);
+    setEditingRecordId(record.id);
+    setDraftStartTime(formatTimeInput(startMinutes));
+    setDraftEndTime(formatTimeInput(endMinutes));
+    setExpandedEditorTimeSection(null);
+    setRecordEditorVisible(true);
+  };
+
+  const handleCloseRecordEditor = () => {
+    setRecordEditorVisible(false);
+    setEditingRecordId(null);
+    setExpandedEditorTimeSection(null);
+  };
+
+  const handleSaveRecordEditor = async () => {
     if (!selectedDayKey) {
       return;
     }
 
-    const parsedMinutes = Number(editedMinutes);
+    const startMinutes = parseTimeInput(draftStartTime);
+    const endMinutes = parseTimeInput(draftEndTime);
 
-    if (!Number.isInteger(parsedMinutes) || parsedMinutes < 0) {
-      Alert.alert(t('stats.invalidMinutesTitle'), t('stats.invalidMinutesMessage'));
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+      Alert.alert(t('stats.invalidRecordTimeTitle'), t('stats.invalidRecordTimeMessage'));
       return;
     }
 
-    setIsSaving(true);
-    await upsertRecordMinutes(db, selectedDayKey, parsedMinutes);
+    if (editingRecordId === null) {
+      await insertManualRecord(db, selectedDayKey, startMinutes, endMinutes);
+    } else {
+      await updateManualRecordById(db, editingRecordId, selectedDayKey, startMinutes, endMinutes);
+    }
+
+    setRecordEditorVisible(false);
+    setEditingRecordId(null);
+    setExpandedEditorTimeSection(null);
     await loadData();
-    setEditedMinutes(String(parsedMinutes));
-    setIsSaving(false);
   };
 
-  const clearSelectedDay = async (dayKey: string) => {
-    setIsSaving(true);
-    await deleteRecordByDayKey(db, dayKey);
-    await loadData();
-    setEditedMinutes('0');
-    setIsSaving(false);
-  };
+  const renderEditorTimePicker = (
+    section: EditorTimeSection,
+    label: string,
+    value: string,
+    iconName: IoniconName,
+    accentColor: string,
+    iconBackground: string,
+    onChange: (value: string) => void,
+  ) => {
+    const isExpanded = expandedEditorTimeSection === section;
+    const timeMinutes = parseTimeInput(value) ?? 0;
 
-  const handleClearSelectedDay = () => {
-    if (!selectedDayKey) {
-      return;
-    }
+    return (
+      <View
+        style={[
+          styles.editorTimeCard,
+          isExpanded && { borderColor: accentColor, backgroundColor: '#FFFDFC' },
+        ]}
+      >
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setExpandedEditorTimeSection(isExpanded ? null : section)}
+          style={styles.editorTimeRow}
+        >
+          <View style={styles.editorInputMain}>
+            <View style={[styles.editorInputIcon, { backgroundColor: iconBackground }]}>
+              <Ionicons color={accentColor} name={iconName} size={22} />
+            </View>
+            <Text style={styles.editorInputLabel}>{label}</Text>
+          </View>
+          <Text style={[styles.editorTimeValue, isExpanded && { color: accentColor }]}>
+            {value}
+          </Text>
+          <Ionicons
+            color={isExpanded ? accentColor : colors.mutedSubtle}
+            name={isExpanded ? 'chevron-up' : 'chevron-forward'}
+            size={21}
+          />
+        </Pressable>
 
-    const dayKey = selectedDayKey;
-
-    if (Platform.OS === 'web') {
-      const confirmed = window.confirm(
-        `${t('stats.confirmClearTitle')}\n\n${t('stats.confirmClearMessage')}`,
-      );
-
-      if (confirmed) {
-        void clearSelectedDay(dayKey);
-      }
-
-      return;
-    }
-
-    Alert.alert(t('stats.confirmClearTitle'), t('stats.confirmClearMessage'), [
-      {
-        style: 'cancel',
-        text: t('stats.cancel'),
-      },
-      {
-        onPress: () => {
-          void clearSelectedDay(dayKey);
-        },
-        style: 'destructive',
-        text: t('stats.confirmClearAction'),
-      },
-    ]);
+        {isExpanded ? (
+          <View style={styles.editorTimePickerBody}>
+            <TimeWheelPicker
+              accentColor={accentColor}
+              onChangeMinutes={(minutes) => onChange(formatTimeInput(minutes))}
+              style={styles.editorTimePicker}
+              valueMinutes={timeMinutes}
+            />
+          </View>
+        ) : null}
+      </View>
+    );
   };
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoid}
-      >
         <ScrollView
-          ref={scrollViewRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -422,7 +463,7 @@ export default function StatsScreen() {
           <View style={styles.chart}>
             {chartRecords.map((record, index) => (
               <View
-                key={record.dayKey}
+                key={`${record.dayKey}-${record.id}`}
                 style={[
                   styles.chartBar,
                   {
@@ -449,7 +490,7 @@ export default function StatsScreen() {
             {calendarWeeks.map((week, weekIndex) => (
               <View key={`week-${weekIndex}`} style={styles.calendarWeek}>
                 {week.map((cell) => {
-                  const record = cell.dayKey ? recordMap[cell.dayKey] : undefined;
+                  const dayTotal = cell.dayKey ? dayTotals[cell.dayKey] : undefined;
                   const isToday = cell.dayKey === todayKey;
                   const isSelected = selectedDayKey !== null && selectedDayKey === cell.dayKey;
 
@@ -485,16 +526,16 @@ export default function StatsScreen() {
                             adjustsFontSizeToFit
                             style={[
                               styles.dayMinutes,
-                              record && {
-                                color: getRecordMinutesColor(record.minutes_since_start),
+                              dayTotal !== undefined && {
+                                color: getRecordMinutesColor(dayTotal),
                               },
                               isToday && styles.todayDayMinutes,
                             ]}
                           >
-                            {record
+                            {dayTotal !== undefined
                               ? recordUnit === 'minutes'
-                                ? record.minutes_since_start
-                                : formatDuration(record.minutes_since_start, recordUnit)
+                                ? dayTotal
+                                : formatDuration(dayTotal, recordUnit)
                               : ''}
                           </Text>
                         </>
@@ -506,120 +547,281 @@ export default function StatsScreen() {
             ))}
           </View>
         </View>
-
-        <View style={[styles.editorPanel, showEditorActions && styles.editorPanelActive]}>
-          <Pressable
-            accessibilityLabel={
-              showEditorActions ? t('stats.hideEditActions') : t('stats.showEditActions')
-            }
-            accessibilityRole="button"
-            disabled={!selectedDayKey}
-            onPress={() => setShowEditorActions((current) => !current)}
-            style={styles.editorOptionRow}
-          >
-            <View style={styles.editorIconTile}>
-              <Ionicons color={colors.info} name="create-outline" size={24} />
-            </View>
-            <View style={styles.editorRowCopy}>
+        </ScrollView>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setSelectedDayKey(null)}
+        transparent
+        visible={selectedDayKey !== null && !recordEditorVisible}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setSelectedDayKey(null)} />
+        <View style={styles.dayRecordsSheet}>
+          <View style={styles.sheetGrabber} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetTitleGroup}>
               <View style={styles.editorTitleLine}>
-                <Text style={[styles.editorTitle, showEditorActions && { color: colors.info }]}>
+                <Text style={styles.sheetTitle}>
                   {selectedDayKey ? formatDayLabel(selectedDayKey) : t('stats.noSelectedDay')}
                 </Text>
                 {selectedDayKey ? (
                   <Text style={styles.weekdayPill}>{formatWeekdayLabel(selectedDayKey)}</Text>
                 ) : null}
               </View>
-              <Text style={styles.editorSubtitle}>
-                {selectedRecord
-                  ? formatRecordRange(selectedRecord, startTimeMinutes)
-                  : t('stats.noRecord')}
+              <Text style={styles.sheetSubtitle}>
+                {t('stats.dayTotal', {
+                  count: selectedDayRecords.length,
+                  value: formatDuration(selectedDayTotal, recordUnit),
+                })}
               </Text>
             </View>
-            <Text style={[styles.editorRowValue, showEditorActions && { color: colors.info }]}>
-              {selectedRecord
-                ? formatDuration(selectedRecord.minutes_since_start, recordUnit)
-                : t('stats.noRecord')}
-            </Text>
-            <Ionicons
-              color={showEditorActions ? colors.info : colors.mutedSubtle}
-              name={showEditorActions ? 'chevron-up' : 'chevron-forward'}
-              size={20}
-            />
-          </Pressable>
+            <Pressable
+              accessibilityLabel={t('stats.closeRecords')}
+              accessibilityRole="button"
+              onPress={() => setSelectedDayKey(null)}
+              style={styles.sheetCloseButton}
+            >
+              <Ionicons color={colors.textSoft} name="close" size={24} />
+            </Pressable>
+          </View>
 
-          {showEditorActions && selectedDayKey ? (
-            <View onLayout={() => scrollEditorIntoView()} style={styles.editorBody}>
-              <Text style={[styles.optionTitle, { color: colors.info }]}>
-                {t('stats.editRecordDetails')}
-              </Text>
-              <View style={styles.detailGrid}>
-                <View style={styles.detailItem}>
-                  <View style={styles.minutesInputRow}>
-                    <TextInput
-                      editable={!isSaving}
-                      keyboardType="number-pad"
-                      onFocus={() => scrollEditorIntoView()}
-                      onChangeText={(value) => setEditedMinutes(cleanMinutesInput(value))}
-                      placeholder="0"
-                      placeholderTextColor={colors.muted}
-                      selectTextOnFocus
-                      style={styles.minutesInput}
-                      value={editedMinutes}
-                    />
-                    <Text style={styles.minutesUnit}>{t('date.minutesUnit')}</Text>
-                    <Pressable
-                      accessibilityLabel={t('stats.clearRecord')}
-                      accessibilityRole="button"
-                      disabled={isSaving}
-                      onPress={handleClearSelectedDay}
-                      style={({ pressed }) => [
-                        styles.clearIconButton,
-                        pressed && styles.clearIconButtonPressed,
-                        isSaving && styles.saveButtonDisabled,
-                      ]}
-                    >
-                      <Ionicons color={colors.surface} name="trash-outline" size={20} />
-                    </Pressable>
-                  </View>
-                </View>
-                <View style={styles.timeInfoRow}>
-                  <View style={styles.timeInfoItem}>
-                    <Text style={styles.detailLabel}>{t('stats.createdAt')}</Text>
-                    <Text style={styles.detailValue}>
-                      {formatDateTime(selectedRecord?.created_at, t('stats.noData'))}
-                    </Text>
-                  </View>
-                  <View style={styles.timeInfoItem}>
-                    <Text style={styles.detailLabel}>{t('stats.lastUpdated')}</Text>
-                    <Text style={styles.detailValue}>
-                      {formatDateTime(selectedRecord?.updated_at, t('stats.noData'))}
-                    </Text>
-                  </View>
-                </View>
+          <ScrollView contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
+            {selectedDayRecords.length > 0 ? (
+              selectedDayRecords.map((record) => (
+                <SwipeRecordRow
+                  colors={colors}
+                  key={record.id}
+                  onDelete={handleDeleteRecord}
+                  onEdit={handleOpenEditRecord}
+                  record={record}
+                  recordUnit={recordUnit}
+                  startTimeMinutes={startTimeMinutes}
+                  styles={styles}
+                  t={t}
+                />
+              ))
+            ) : (
+              <View style={styles.emptyRecords}>
+                <Ionicons color={colors.mutedSubtle} name="calendar-clear-outline" size={32} />
+                <Text style={styles.emptyRecordsText}>{t('stats.noRecord')}</Text>
               </View>
-
-              <View style={styles.editorActions}>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={isSaving}
-                  onPress={handleSaveSelectedDay}
-                  style={({ pressed }) => [
-                    styles.saveButton,
-                    pressed && styles.saveButtonPressed,
-                    isSaving && styles.saveButtonDisabled,
-                  ]}
-                >
-                  <Text style={styles.saveText}>
-                    {isSaving ? t('stats.saving') : t('stats.save')}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
+            )}
+          </ScrollView>
+          {canCreateSelectedDayRecord ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                onPress={handleOpenCreateRecord}
+                style={styles.createRecordButton}
+              >
+                <Ionicons color={colors.surface} name="add" size={28} />
+                <Text style={styles.createRecordText}>{t('stats.newRecord')}</Text>
+              </Pressable>
+              <Text style={styles.createRecordHint}>{t('stats.newRecordHint')}</Text>
+            </>
           ) : null}
         </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        animationType="slide"
+        onRequestClose={handleCloseRecordEditor}
+        transparent
+        visible={recordEditorVisible}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={handleCloseRecordEditor} />
+        <View style={styles.recordEditorSheet}>
+          <View style={styles.sheetGrabber} />
+          <View style={styles.editorSheetHeader}>
+            <View>
+              <Text style={styles.sheetTitle}>
+                {editingRecordId === null ? t('stats.newRecord') : t('stats.editRecord')}
+              </Text>
+              <Text style={styles.sheetSubtitle}>
+                {selectedDayKey ? formatDayLabel(selectedDayKey) : t('stats.noSelectedDay')}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel={t('stats.closeRecords')}
+              accessibilityRole="button"
+              onPress={handleCloseRecordEditor}
+              style={styles.sheetCloseButton}
+            >
+              <Ionicons color={colors.textSoft} name="close" size={24} />
+            </Pressable>
+          </View>
+
+          <View style={styles.editorForm}>
+            {renderEditorTimePicker(
+              'start',
+              t('stats.startTime'),
+              draftStartTime,
+              'time-outline',
+              colors.accent,
+              colors.primarySoft,
+              (value) => setDraftStartTime(cleanTimeInput(value)),
+            )}
+            {renderEditorTimePicker(
+              'end',
+              t('stats.endTime'),
+              draftEndTime,
+              'time',
+              colors.info,
+              colors.infoSoft,
+              (value) => setDraftEndTime(cleanTimeInput(value)),
+            )}
+            <View style={styles.editorInputRow}>
+              <View style={styles.editorInputMain}>
+                <View style={[styles.editorInputIcon, { backgroundColor: '#EAF4FF' }]}>
+                  <Ionicons color={colors.highlight} name="hourglass-outline" size={22} />
+                </View>
+                <Text style={styles.editorInputLabel}>{t('stats.duration')}</Text>
+              </View>
+              <Text style={styles.editorDurationValue}>
+                {(() => {
+                  const startMinutes = parseTimeInput(draftStartTime);
+                  const endMinutes = parseTimeInput(draftEndTime);
+
+                  return startMinutes !== null && endMinutes !== null && endMinutes > startMinutes
+                    ? formatDuration(endMinutes - startMinutes, recordUnit)
+                    : t('stats.autoCalculate');
+                })()}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.editorSheetActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleCloseRecordEditor}
+              style={styles.cancelRecordButton}
+            >
+              <Text style={styles.cancelRecordText}>{t('stats.cancel')}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleSaveRecordEditor}
+              style={styles.saveRecordButton}
+            >
+              <Text style={styles.saveRecordText}>{t('stats.saveRecord')}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+type SwipeRecordRowProps = {
+  colors: ReturnType<typeof useAppTheme>['colors'];
+  onDelete: (id: number) => void;
+  onEdit: (record: DayRecord) => void;
+  record: DayRecord;
+  recordUnit: RecordUnit;
+  startTimeMinutes: number;
+  styles: ReturnType<typeof makeStyles>;
+  t: ReturnType<typeof useTranslation>['t'];
+};
+
+function SwipeRecordRow({
+  colors,
+  onDelete,
+  onEdit,
+  record,
+  recordUnit,
+  startTimeMinutes,
+  styles,
+  t,
+}: SwipeRecordRowProps) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const latestTranslateXRef = useRef(0);
+
+  const snapTo = useCallback(
+    (value: number) => {
+      latestTranslateXRef.current = value;
+      Animated.spring(translateX, {
+        bounciness: 0,
+        speed: 18,
+        toValue: value,
+        useNativeDriver: true,
+      }).start();
+    },
+    [translateX],
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+        onPanResponderMove: (_, gestureState) => {
+          const nextValue = Math.max(
+            -deleteActionWidth,
+            Math.min(0, latestTranslateXRef.current + gestureState.dx),
+          );
+          translateX.setValue(nextValue);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const shouldOpen = latestTranslateXRef.current + gestureState.dx < -deleteActionWidth / 2;
+          snapTo(shouldOpen ? -deleteActionWidth : 0);
+        },
+        onPanResponderTerminate: () => {
+          snapTo(latestTranslateXRef.current < -deleteActionWidth / 2 ? -deleteActionWidth : 0);
+        },
+      }),
+    [snapTo, translateX],
+  );
+
+  return (
+    <View style={styles.swipeRecordShell}>
+      <Pressable
+        accessibilityLabel={t('stats.deleteRecord')}
+        accessibilityRole="button"
+        onPress={() => onDelete(record.id)}
+        style={styles.recordDeleteAction}
+      >
+        <Ionicons color={colors.surface} name="trash-outline" size={21} />
+        <Text style={styles.recordDeleteText}>{t('stats.delete')}</Text>
+      </Pressable>
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={[
+          styles.recordPopupRow,
+          {
+            transform: [{ translateX }],
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.recordPopupIcon,
+            { backgroundColor: getRecordMinutesColor(record.minutes_since_start) },
+          ]}
+        >
+          <Ionicons color={colors.surface} name="time-outline" size={22} />
+        </View>
+        <View style={styles.recordPopupCopy}>
+          <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
+          <Text style={styles.recordPopupMeta}>
+            {formatDateTime(record.updated_at, t('stats.noData'))}
+          </Text>
+        </View>
+        <Text
+          style={[
+            styles.recordPopupValue,
+            { color: getRecordMinutesColor(record.minutes_since_start) },
+          ]}
+        >
+          {formatDuration(record.minutes_since_start, recordUnit)}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => onEdit(record)}
+          style={styles.recordEditButton}
+        >
+          <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={20} />
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -803,6 +1005,306 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   todayDayMinutes: {
     color: colors.surface,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(12, 18, 28, 0.34)',
+  },
+  dayRecordsSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: '72%',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 28,
+  },
+  sheetGrabber: {
+    alignSelf: 'center',
+    width: 56,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: colors.borderStrong,
+    marginBottom: spacing.lg,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  sheetTitleGroup: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
+  },
+  sheetTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  sheetSubtitle: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  sheetCloseButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+    flexShrink: 0,
+  },
+  sheetList: {
+    gap: spacing.sm,
+    paddingBottom: 0,
+  },
+  swipeRecordShell: {
+    minHeight: 78,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    backgroundColor: colors.danger,
+  },
+  recordDeleteAction: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: deleteActionWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    backgroundColor: colors.danger,
+  },
+  recordDeleteText: {
+    color: colors.surface,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  recordPopupRow: {
+    minHeight: 78,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  recordPopupIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  recordPopupCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  recordPopupTime: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  recordPopupMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  recordPopupValue: {
+    fontSize: 16,
+    fontWeight: '900',
+    flexShrink: 0,
+  },
+  recordEditButton: {
+    width: 28,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -6,
+  },
+  createRecordButton: {
+    height: 58,
+    borderRadius: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    marginTop: spacing.md,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  createRecordText: {
+    color: colors.surface,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  createRecordHint: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  recordEditorSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl + spacing.sm,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 28,
+  },
+  editorSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  editorForm: {
+    gap: spacing.md,
+  },
+  editorInputRow: {
+    minHeight: 74,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  editorTimeCard: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  editorTimeRow: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  editorInputMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  editorInputIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editorInputLabel: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  editorTimeValue: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    flexShrink: 0,
+  },
+  editorTimePickerBody: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  editorTimePicker: {
+    minHeight: 178,
+    borderWidth: 0,
+  },
+  editorDurationValue: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+    flexShrink: 0,
+  },
+  editorSheetActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.xl,
+  },
+  cancelRecordButton: {
+    flex: 1,
+    height: 54,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelRecordText: {
+    color: colors.textSoft,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  saveRecordButton: {
+    flex: 1.5,
+    height: 54,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  saveRecordText: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  emptyRecords: {
+    minHeight: 128,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  emptyRecordsText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '800',
   },
   editorPanel: {
     width: '100%',

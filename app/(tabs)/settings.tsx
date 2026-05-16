@@ -1,12 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -17,180 +15,23 @@ import {
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   getRecordUnit,
   getRecentRecordLimit,
   getStartTimeMinutes,
+  getSeparateRecordEnabled,
   setRecentRecordLimit as saveRecentRecordLimit,
   setRecordUnit as saveRecordUnit,
+  setSeparateRecordEnabled as saveSeparateRecordEnabled,
   setStartTimeMinutes,
 } from '@/data/database';
 import { radius, spacing, useAppTheme } from '@/theme';
 import { formatTimeFromMinutes, type RecordUnit } from '@/utils/date';
 
-type SettingSection = 'startTime' | 'recordUnit' | 'recentRecords';
+type SettingSection = 'startTime' | 'recordUnit' | 'recentRecords' | 'separateRecord';
 
 const recentRecordOptions = [5, 10, 20, 30];
-const wheelItemHeight = 46;
-const wheelVisibleItems = 5;
-
-type WheelPickerProps = {
-  accentColor: string;
-  onChange: (value: string) => void;
-  value: string;
-  values: string[];
-};
-
-function WheelPicker({ accentColor, onChange, value, values }: WheelPickerProps) {
-  const scrollRef = useRef<ScrollView>(null);
-  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectedIndex = Math.max(0, values.indexOf(value));
-  const latestOffsetRef = useRef(selectedIndex * wheelItemHeight);
-  const verticalPadding = (wheelItemHeight * (wheelVisibleItems - 1)) / 2;
-
-  const updateValueFromOffset = useCallback(
-    (offsetY: number) => {
-      const nextIndex = Math.max(
-        0,
-        Math.min(values.length - 1, Math.round(offsetY / wheelItemHeight)),
-      );
-
-      const nextValue = values[nextIndex];
-
-      if (nextValue !== value) {
-        onChange(nextValue);
-      }
-
-      scrollRef.current?.scrollTo({
-        animated: true,
-        y: nextIndex * wheelItemHeight,
-      });
-    },
-    [onChange, value, values],
-  );
-
-  const scheduleCommitFromLatestOffset = useCallback(
-    (delay = 260) => {
-      if (settleTimerRef.current) {
-        clearTimeout(settleTimerRef.current);
-      }
-
-      settleTimerRef.current = setTimeout(() => {
-        updateValueFromOffset(latestOffsetRef.current);
-      }, delay);
-    },
-    [updateValueFromOffset],
-  );
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({
-      animated: false,
-      y: selectedIndex * wheelItemHeight,
-    });
-  }, [selectedIndex]);
-
-  useEffect(() => {
-    return () => {
-      if (settleTimerRef.current) {
-        clearTimeout(settleTimerRef.current);
-      }
-    };
-  }, []);
-
-  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    latestOffsetRef.current = event.nativeEvent.contentOffset.y;
-    updateValueFromOffset(latestOffsetRef.current);
-  };
-
-  return (
-    <View style={stylesStatic.wheelPicker}>
-      <View pointerEvents="none" style={stylesStatic.wheelHighlight} />
-      <ScrollView
-        ref={scrollRef}
-        bounces={false}
-        decelerationRate={Platform.OS === 'ios' ? 0.96 : 0.985}
-        nestedScrollEnabled
-        onMomentumScrollBegin={() => {
-          if (settleTimerRef.current) {
-            clearTimeout(settleTimerRef.current);
-          }
-        }}
-        onMomentumScrollEnd={(event) => {
-          handleScrollEnd(event);
-        }}
-        onScroll={(event) => {
-          latestOffsetRef.current = event.nativeEvent.contentOffset.y;
-          scheduleCommitFromLatestOffset(360);
-        }}
-        onScrollBeginDrag={() => {
-          if (settleTimerRef.current) {
-            clearTimeout(settleTimerRef.current);
-          }
-        }}
-        onScrollEndDrag={(event) => {
-          latestOffsetRef.current = event.nativeEvent.contentOffset.y;
-          scheduleCommitFromLatestOffset(420);
-        }}
-        overScrollMode="never"
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
-        style={stylesStatic.wheelScroll}
-        contentContainerStyle={{ paddingVertical: verticalPadding }}
-      >
-        {values.map((item) => {
-          const isSelected = item === value;
-
-          return (
-            <View key={item} style={stylesStatic.wheelItem}>
-              <Text
-                style={[
-                  stylesStatic.wheelItemText,
-                  isSelected && { color: accentColor, fontSize: 31, opacity: 1 },
-                ]}
-              >
-                {item}
-              </Text>
-            </View>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-}
-
-const stylesStatic = StyleSheet.create({
-  wheelPicker: {
-    width: 112,
-    height: wheelItemHeight * wheelVisibleItems,
-    overflow: 'hidden',
-  },
-  wheelHighlight: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: wheelItemHeight * 2,
-    height: wheelItemHeight,
-    borderRadius: radius.md,
-    backgroundColor: '#FFF7E9',
-    borderWidth: 1,
-    borderColor: '#FFDCA8',
-  },
-  wheelScroll: {
-    flex: 1,
-  },
-  wheelItem: {
-    height: wheelItemHeight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wheelItemText: {
-    color: '#9EA8B3',
-    fontSize: 21,
-    fontWeight: '800',
-    lineHeight: 36,
-    opacity: 0.76,
-  },
-});
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
@@ -198,36 +39,25 @@ export default function SettingsScreen() {
   const { colors } = theme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
-  const [hour, setHour] = useState('00');
-  const [minute, setMinute] = useState('00');
+  const [pendingStartMinutes, setPendingStartMinutes] = useState(0);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [recentRecordLimit, setRecentRecordLimit] = useState('5');
+  const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingSection | null>(null);
-  const hourOptions = useMemo(
-    () => Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0')),
-    [],
-  );
-  const minuteOptions = useMemo(
-    () => Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0')),
-    [],
-  );
-  const pendingStartMinutes = useMemo(() => Number(hour || 0) * 60 + Number(minute || 0), [
-    hour,
-    minute,
-  ]);
 
   const loadSettings = useCallback(async () => {
-    const [startMinutes, unit, limit] = await Promise.all([
+    const [startMinutes, unit, limit, separateEnabled] = await Promise.all([
       getStartTimeMinutes(db),
       getRecordUnit(db),
       getRecentRecordLimit(db),
+      getSeparateRecordEnabled(db),
     ]);
 
-    setHour(String(Math.floor(startMinutes / 60)).padStart(2, '0'));
-    setMinute(String(startMinutes % 60).padStart(2, '0'));
+    setPendingStartMinutes(startMinutes);
     setRecordUnit(unit);
     setRecentRecordLimit(String(limit));
+    setSeparateRecordEnabled(separateEnabled);
   }, [db]);
 
   useFocusEffect(
@@ -237,16 +67,10 @@ export default function SettingsScreen() {
   );
 
   const handleSave = async () => {
-    const parsedHour = Number(hour);
-    const parsedMinute = Number(minute);
-
     if (
-      !Number.isInteger(parsedHour) ||
-      !Number.isInteger(parsedMinute) ||
-      parsedHour < 0 ||
-      parsedHour > 23 ||
-      parsedMinute < 0 ||
-      parsedMinute > 59
+      !Number.isInteger(pendingStartMinutes) ||
+      pendingStartMinutes < 0 ||
+      pendingStartMinutes > 23 * 60 + 59
     ) {
       Alert.alert(t('settings.invalidTimeTitle'), t('settings.invalidTimeMessage'));
       return;
@@ -264,13 +88,13 @@ export default function SettingsScreen() {
 
     setIsSaving(true);
     const [nextMinutes, , nextRecentRecordLimit] = await Promise.all([
-      setStartTimeMinutes(db, parsedHour * 60 + parsedMinute),
+      setStartTimeMinutes(db, pendingStartMinutes),
       saveRecordUnit(db, recordUnit),
       saveRecentRecordLimit(db, parsedRecentRecordLimit),
+      saveSeparateRecordEnabled(db, separateRecordEnabled),
     ]);
 
-    setHour(String(Math.floor(nextMinutes / 60)).padStart(2, '0'));
-    setMinute(String(nextMinutes % 60).padStart(2, '0'));
+    setPendingStartMinutes(nextMinutes);
     setRecentRecordLimit(String(nextRecentRecordLimit));
     setExpandedSection(null);
     setIsSaving(false);
@@ -338,27 +162,100 @@ export default function SettingsScreen() {
                   <Text style={[styles.optionTitle, { color: colors.primary }]}>
                     {t('settings.chooseStartTime')}
                   </Text>
-                  <View style={styles.timePickerPanel}>
-                    <WheelPicker
-                      accentColor={colors.primary}
-                      onChange={setHour}
-                      value={hour}
-                      values={hourOptions}
-                    />
-
-                    <Text style={styles.wheelSeparator}>:</Text>
-
-                    <WheelPicker
-                      accentColor={colors.primary}
-                      onChange={setMinute}
-                      value={minute}
-                      values={minuteOptions}
-                    />
-                  </View>
+                  <TimeWheelPicker
+                    accentColor={colors.primary}
+                    onChangeMinutes={setPendingStartMinutes}
+                    valueMinutes={pendingStartMinutes}
+                  />
                   <View style={styles.tipRow}>
                     <Ionicons color={colors.accent} name="bulb-outline" size={17} />
                     <Text style={[styles.tipText, { color: colors.accent }]}>
                       {t('settings.startTimeDescription')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            <View
+              style={[
+                styles.optionCard,
+                expandedSection === 'separateRecord' && styles.optionCardSeparateActive,
+              ]}
+            >
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => handleToggleSection('separateRecord')}
+                style={styles.settingRow}
+              >
+                <View style={[styles.iconTile, styles.separateTile]}>
+                  <Ionicons color={colors.danger} name="stopwatch-outline" size={25} />
+                </View>
+                <Text
+                  style={[
+                    styles.rowLabel,
+                    expandedSection === 'separateRecord' && { color: colors.danger },
+                  ]}
+                >
+                  {t('settings.separateRecord')}
+                </Text>
+                <Text
+                  style={[
+                    styles.rowValue,
+                    expandedSection === 'separateRecord' && { color: colors.danger },
+                  ]}
+                >
+                  {separateRecordEnabled ? t('settings.yes') : t('settings.no')}
+                </Text>
+                {renderChevron(
+                  'separateRecord',
+                  expandedSection === 'separateRecord' ? colors.danger : colors.mutedSubtle,
+                )}
+              </Pressable>
+
+              {expandedSection === 'separateRecord' ? (
+                <View style={styles.optionBody}>
+                  <Text style={[styles.optionTitle, { color: colors.danger }]}>
+                    {t('settings.chooseSeparateRecord')}
+                  </Text>
+                  {[
+                    {
+                      label: t('settings.no'),
+                      value: false,
+                      description: t('settings.separateRecordNoDescription'),
+                    },
+                    {
+                      label: t('settings.yes'),
+                      value: true,
+                      description: t('settings.separateRecordYesDescription'),
+                    },
+                  ].map((item) => {
+                    const isActive = separateRecordEnabled === item.value;
+
+                    return (
+                      <Pressable
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: isActive }}
+                        key={String(item.value)}
+                        onPress={() => setSeparateRecordEnabled(item.value)}
+                        style={[styles.choiceRow, isActive && styles.choiceRowSeparateActive]}
+                      >
+                        <View style={[styles.radio, isActive && styles.radioSeparateActive]}>
+                          {isActive ? (
+                            <Ionicons color={colors.surface} name="checkmark" size={18} />
+                          ) : null}
+                        </View>
+                        <View style={styles.choiceCopy}>
+                          <Text style={styles.choiceTitle}>{item.label}</Text>
+                          <Text style={styles.choiceDescription}>{item.description}</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                  <View style={styles.tipRow}>
+                    <Ionicons color={colors.danger} name="information-circle-outline" size={17} />
+                    <Text style={[styles.tipText, { color: colors.danger }]}>
+                      {t('settings.separateRecordDescription')}
                     </Text>
                   </View>
                 </View>
@@ -601,6 +498,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: '#9CC8FF',
       backgroundColor: '#F7FBFF',
     },
+    optionCardSeparateActive: {
+      borderColor: '#FFB7A7',
+      backgroundColor: '#FFF7F3',
+    },
     settingRow: {
       minHeight: 72,
       flexDirection: 'row',
@@ -625,6 +526,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     listTile: {
       backgroundColor: '#E5F0FF',
     },
+    separateTile: {
+      backgroundColor: colors.dangerSoft,
+    },
     rowLabel: {
       flex: 1,
       color: colors.text,
@@ -648,49 +552,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       fontWeight: '900',
       marginBottom: spacing.md,
     },
-    timePickerPanel: {
-      minHeight: 190,
-      borderRadius: radius.lg,
-      backgroundColor: 'rgba(255,255,255,0.66)',
-      borderWidth: 1,
-      borderColor: '#FFE2B9',
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: spacing.md,
-      overflow: 'hidden',
-    },
-    timeColumn: {
-      width: 112,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.sm,
-    },
-    timeGhost: {
-      color: colors.mutedSubtle,
-      fontSize: 21,
-      fontWeight: '800',
-      opacity: 0.78,
-      lineHeight: 26,
-    },
-    wheelInput: {
-      width: 104,
-      height: 52,
-      borderRadius: radius.md,
-      backgroundColor: '#FFF7E9',
-      borderWidth: 1,
-      borderColor: '#FFDCA8',
-      fontSize: 31,
-      fontWeight: '900',
-      textAlign: 'center',
-      lineHeight: 38,
-    },
-    wheelSeparator: {
-      color: colors.primary,
-      fontSize: 30,
-      fontWeight: '900',
-      marginHorizontal: spacing.sm,
-    },
     choiceRow: {
       minHeight: 78,
       flexDirection: 'row',
@@ -706,6 +567,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     choiceRowUnitActive: {
       backgroundColor: '#EEFFFD',
       borderColor: '#9BE7E2',
+    },
+    choiceRowSeparateActive: {
+      backgroundColor: '#FFF1EC',
+      borderColor: '#FFC5B8',
     },
     radio: {
       width: 28,
@@ -724,6 +589,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     radioListActive: {
       backgroundColor: colors.highlight,
       borderColor: colors.highlight,
+    },
+    radioSeparateActive: {
+      backgroundColor: colors.danger,
+      borderColor: colors.danger,
     },
     choiceCopy: {
       flex: 1,
