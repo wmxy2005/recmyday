@@ -415,6 +415,20 @@ export default function StatsScreen() {
         >
         <View style={styles.titleHeader}>
           <Text style={styles.screenTitle}>{t('tabs.stats')}</Text>
+          <Pressable
+            accessibilityLabel={t('stats.goToCurrentMonth')}
+            accessibilityRole="button"
+            disabled={isCurrentMonth}
+            hitSlop={10}
+            onPress={handleGoToCurrentMonth}
+            style={({ pressed }) => [
+              styles.headerIconButton,
+              pressed && styles.headerIconButtonPressed,
+              isCurrentMonth && styles.headerIconButtonDisabled,
+            ]}
+          >
+            <Ionicons color={colors.text} name="today-outline" size={24} />
+          </Pressable>
         </View>
 
         <View style={styles.monthSelector}>
@@ -426,16 +440,9 @@ export default function StatsScreen() {
             <Ionicons color={colors.text} name="chevron-back" size={23} />
           </Pressable>
 
-          <Pressable
-            accessibilityLabel={t('stats.goToCurrentMonth')}
-            accessibilityRole="button"
-            disabled={isCurrentMonth}
-            onPress={handleGoToCurrentMonth}
-            style={styles.monthTitleGroup}
-          >
+          <View style={styles.monthTitleGroup}>
             <Text style={styles.monthTitle}>{formatMonthTitle(monthDate)}</Text>
-            <Ionicons color={colors.text} name="caret-down" size={13} />
-          </Pressable>
+          </View>
 
           <Pressable
             accessibilityRole="button"
@@ -843,14 +850,33 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   titleHeader: {
     minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
   screenTitle: {
+    flex: 1,
     color: colors.text,
     fontSize: 31,
     fontWeight: '900',
     letterSpacing: 0,
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  headerIconButtonPressed: {
+    backgroundColor: colors.surfaceElevated,
+  },
+  headerIconButtonDisabled: {
+    opacity: 0.55,
   },
   monthSelector: {
     minHeight: 62,

@@ -392,9 +392,20 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.title}>{t('home.today')}</Text>
           </View>
-          <View style={styles.headerIcon}>
+          <Pressable
+            accessibilityLabel={`${t('home.today')} ${t('tabs.stats')}`}
+            accessibilityRole="button"
+            disabled={!currentDayKey}
+            hitSlop={10}
+            onPress={() => handleOpenRecordInStats(currentDayKey)}
+            style={({ pressed }) => [
+              styles.headerIcon,
+              pressed && styles.headerIconPressed,
+              !currentDayKey && styles.headerIconDisabled,
+            ]}
+          >
             <Ionicons color={colors.text} name="calendar-clear-outline" size={24} />
-          </View>
+          </Pressable>
         </View>
 
         <Pressable
@@ -604,6 +615,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  headerIconPressed: {
+    backgroundColor: colors.surfaceElevated,
+  },
+  headerIconDisabled: {
+    opacity: 0.55,
   },
   todayPanelShell: {
     borderRadius: radius.xl,

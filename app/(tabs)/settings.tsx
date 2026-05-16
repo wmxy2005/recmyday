@@ -1,5 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { File, Paths } from 'expo-file-system';
 import { useFocusEffect } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -17,14 +20,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
+  getAllDayRecords,
   getRecordUnit,
   getRecentRecordLimit,
   getStartTimeMinutes,
   getSeparateRecordEnabled,
+  replaceAllDayRecords,
   setRecentRecordLimit as saveRecentRecordLimit,
   setRecordUnit as saveRecordUnit,
   setSeparateRecordEnabled as saveSeparateRecordEnabled,
   setStartTimeMinutes,
+  type ImportDayRecord,
 } from '@/data/database';
 import { radius, spacing, useAppTheme } from '@/theme';
 import { formatTimeFromMinutes, type RecordUnit } from '@/utils/date';
@@ -32,6 +38,177 @@ import { formatTimeFromMinutes, type RecordUnit } from '@/utils/date';
 type SettingSection = 'startTime' | 'recordUnit' | 'recentRecords' | 'separateRecord';
 
 const recentRecordOptions = [5, 10, 20, 30];
+const exportSchemaVersion = 1;
+const exportAppId = 'recmyday';
+
+type DayRecordsExportFile = {
+  app: typeof exportAppId;
+  schemaVersion: typeof exportSchemaVersion;
+  exportedAt: string;
+  recordCount: number;
+  records: ImportDayRecord[];
+  checksum: string;
+};
+
+function checksumText(text: string) {
+  let hash = 0x811c9dc5;
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function createExportChecksum(payload: Omit<DayRecordsExportFile, 'checksum'>) {
+  return checksumText(JSON.stringify(payload));
+}
+
+function isValidIsoDate(value: unknown) {
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
+}
+
+function isImportDayRecord(value: unknown): value is ImportDayRecord {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as Partial<ImportDayRecord>;
+  const timestampMs = record.timestamp_ms;
+  const minutesSinceStart = record.minutes_since_start;
+
+  return (
+    typeof record.day_key === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(record.day_key) &&
+    isValidIsoDate(record.recorded_at) &&
+    Number.isInteger(timestampMs) &&
+    typeof timestampMs === 'number' &&
+    timestampMs >= 0 &&
+    Number.isInteger(minutesSinceStart) &&
+    typeof minutesSinceStart === 'number' &&
+    minutesSinceStart >= 0 &&
+    typeof record.created_at === 'string' &&
+    record.created_at.length > 0 &&
+    typeof record.updated_at === 'string' &&
+    record.updated_at.length > 0
+  );
+}
+
+function parseExportFile(text: string) {
+  const parsed = JSON.parse(text) as Partial<DayRecordsExportFile>;
+  const { checksum, ...payload } = parsed;
+
+  if (
+    parsed.app !== exportAppId ||
+    parsed.schemaVersion !== exportSchemaVersion ||
+    !isValidIsoDate(parsed.exportedAt) ||
+    !Array.isArray(parsed.records) ||
+    parsed.records.some((record) => !isImportDayRecord(record)) ||
+    parsed.recordCount !== parsed.records.length ||
+    typeof checksum !== 'string' ||
+    checksum !== createExportChecksum(payload as Omit<DayRecordsExportFile, 'checksum'>)
+  ) {
+    throw new Error('Invalid export file');
+  }
+
+  return parsed.records;
+}
+
+function downloadExportFileWeb(filename: string, content: string) {
+  if (typeof document === 'undefined') {
+    throw new Error('Web document is unavailable');
+  }
+
+  const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function readImportFileWeb() {
+  if (typeof document === 'undefined') {
+    throw new Error('Web document is unavailable');
+  }
+
+  return new Promise<string | null>((resolve, reject) => {
+    const input = document.createElement('input');
+    let isSettled = false;
+
+    const cleanup = () => {
+      input.remove();
+    };
+    const settle = (value: string | null) => {
+      if (isSettled) {
+        return;
+      }
+
+      isSettled = true;
+      cleanup();
+      resolve(value);
+    };
+    const fail = (error: unknown) => {
+      if (isSettled) {
+        return;
+      }
+
+      isSettled = true;
+      cleanup();
+      reject(error);
+    };
+
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.style.position = 'fixed';
+    input.style.left = '-1000px';
+    input.style.top = '-1000px';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    input.style.opacity = '0';
+    input.addEventListener('cancel', () => settle(null));
+    input.addEventListener('change', async () => {
+      const selectedFile = input.files?.[0];
+
+      if (!selectedFile) {
+        settle(null);
+        return;
+      }
+
+      try {
+        settle(await selectedFile.text());
+      } catch (error) {
+        fail(error);
+      }
+    });
+
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+function confirmImportWeb(message: string) {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.confirm(message);
+}
+
+function showMessage(title: string, message: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.alert(`${title}\n\n${message}`);
+    return;
+  }
+
+  Alert.alert(title, message);
+}
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
@@ -44,6 +221,7 @@ export default function SettingsScreen() {
   const [recentRecordLimit, setRecentRecordLimit] = useState('5');
   const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingSection | null>(null);
 
   const loadSettings = useCallback(async () => {
@@ -100,6 +278,146 @@ export default function SettingsScreen() {
     setIsSaving(false);
   };
 
+  const handleExport = async () => {
+    try {
+      setIsTransferring(true);
+      const records = await getAllDayRecords(db);
+      const exportedAt = new Date().toISOString();
+      const payload: Omit<DayRecordsExportFile, 'checksum'> = {
+        app: exportAppId,
+        schemaVersion: exportSchemaVersion,
+        exportedAt,
+        recordCount: records.length,
+        records: records.map(({ id, ...record }) => record),
+      };
+      const exportFile: DayRecordsExportFile = {
+        ...payload,
+        checksum: createExportChecksum(payload),
+      };
+      const filename = `recmyday-records-${exportedAt.slice(0, 10)}.json`;
+      const fileContent = JSON.stringify(exportFile, null, 2);
+
+      if (Platform.OS === 'web') {
+        downloadExportFileWeb(filename, fileContent);
+        return;
+      }
+
+      const file = new File(
+        Paths.cache,
+        filename,
+      );
+
+      file.create({ overwrite: true });
+      file.write(fileContent);
+
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert(t('settings.exportUnavailableTitle'), t('settings.exportUnavailableMessage'));
+        return;
+      }
+
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/json',
+        dialogTitle: t('settings.exportShareTitle'),
+        UTI: 'public.json',
+      });
+    } catch {
+      Alert.alert(t('settings.exportFailedTitle'), t('settings.exportFailedMessage'));
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const importRecords = (records: ImportDayRecord[]) => {
+    if (Platform.OS === 'web') {
+      const confirmed = confirmImportWeb(
+        t('settings.importConfirmMessage', { count: records.length }),
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          setIsTransferring(true);
+          await replaceAllDayRecords(db, records);
+          showMessage(
+            t('settings.importSuccessTitle'),
+            t('settings.importSuccessMessage', { count: records.length }),
+          );
+        } catch {
+          showMessage(t('settings.importFailedTitle'), t('settings.importFailedMessage'));
+        } finally {
+          setIsTransferring(false);
+        }
+      })();
+      return;
+    }
+
+    Alert.alert(
+      t('settings.importConfirmTitle'),
+      t('settings.importConfirmMessage', { count: records.length }),
+      [
+        { text: t('settings.importCancel'), style: 'cancel' },
+        {
+          text: t('settings.importConfirmAction'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsTransferring(true);
+              await replaceAllDayRecords(db, records);
+              showMessage(
+                t('settings.importSuccessTitle'),
+                t('settings.importSuccessMessage', { count: records.length }),
+              );
+            } catch {
+              showMessage(t('settings.importFailedTitle'), t('settings.importFailedMessage'));
+            } finally {
+              setIsTransferring(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleImport = async () => {
+    try {
+      let text: string | null;
+
+      if (Platform.OS === 'web') {
+        text = await readImportFileWeb();
+      } else {
+        setIsTransferring(true);
+        const result = await DocumentPicker.getDocumentAsync({
+          type: 'application/json',
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+
+        if (result.canceled || !result.assets[0]) {
+          return;
+        }
+
+        text = await new File(result.assets[0].uri).text();
+      }
+
+      if (!text) {
+        return;
+      }
+
+      setIsTransferring(true);
+      const records = parseExportFile(text);
+
+      setIsTransferring(false);
+      importRecords(records);
+    } catch {
+      showMessage(t('settings.importInvalidTitle'), t('settings.importInvalidMessage'));
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
   const renderChevron = (section: SettingSection, color: string) => (
     <Ionicons
       color={color}
@@ -125,6 +443,34 @@ export default function SettingsScreen() {
         >
           <View style={styles.header}>
             <Text style={styles.title}>{t('settings.title')}</Text>
+            <View style={styles.headerActions}>
+              <Pressable
+                accessibilityLabel={t('settings.exportRecords')}
+                accessibilityRole="button"
+                disabled={isTransferring}
+                onPress={handleExport}
+                style={({ pressed }) => [
+                  styles.headerButton,
+                  pressed && styles.headerButtonPressed,
+                  isTransferring && styles.headerButtonDisabled,
+                ]}
+              >
+                <Ionicons color={colors.text} name="download-outline" size={23} />
+              </Pressable>
+              <Pressable
+                accessibilityLabel={t('settings.importRecords')}
+                accessibilityRole="button"
+                disabled={isTransferring}
+                onPress={handleImport}
+                style={({ pressed }) => [
+                  styles.headerButton,
+                  pressed && styles.headerButtonPressed,
+                  isTransferring && styles.headerButtonDisabled,
+                ]}
+              >
+                <Ionicons color={colors.text} name="cloud-upload-outline" size={23} />
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.panel}>
@@ -458,14 +804,38 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     header: {
       minHeight: 54,
+      flexDirection: 'row',
+      alignItems: 'center',
       justifyContent: 'center',
       marginBottom: spacing.md,
     },
     title: {
+      flex: 1,
       color: colors.text,
       fontSize: 31,
       fontWeight: '900',
       letterSpacing: 0,
+    },
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    headerButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    headerButtonPressed: {
+      backgroundColor: colors.surface,
+    },
+    headerButtonDisabled: {
+      opacity: 0.55,
     },
     subtitle: {
       color: colors.textSoft,

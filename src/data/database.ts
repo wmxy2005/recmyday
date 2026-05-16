@@ -25,6 +25,8 @@ export type DayRecord = {
   updated_at: string;
 };
 
+export type ImportDayRecord = Omit<DayRecord, 'id'>;
+
 type SettingRow = {
   value: string;
 };
@@ -449,6 +451,40 @@ export async function getRecentRecords(db: SQLiteDatabase, limit = 8) {
     'SELECT * FROM day_records ORDER BY day_key DESC, timestamp_ms DESC LIMIT ?',
     limit,
   );
+}
+
+export async function getAllDayRecords(db: SQLiteDatabase) {
+  return db.getAllAsync<DayRecord>(
+    'SELECT * FROM day_records ORDER BY day_key ASC, timestamp_ms ASC, id ASC',
+  );
+}
+
+export async function replaceAllDayRecords(db: SQLiteDatabase, records: ImportDayRecord[]) {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM day_records');
+
+    for (const record of records) {
+      await db.runAsync(
+        `
+          INSERT INTO day_records (
+            day_key,
+            recorded_at,
+            timestamp_ms,
+            minutes_since_start,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        record.day_key,
+        record.recorded_at,
+        record.timestamp_ms,
+        record.minutes_since_start,
+        record.created_at,
+        record.updated_at,
+      );
+    }
+  });
 }
 
 export async function getMonthRecords(db: SQLiteDatabase, monthDate: Date) {
