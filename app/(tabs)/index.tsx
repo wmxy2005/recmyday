@@ -5,7 +5,6 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +19,7 @@ import {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { RecordButton } from '@/components/RecordButton';
 import {
   type DayRecord,
@@ -392,12 +392,13 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.title}>{t('home.today')}</Text>
           </View>
-          <Pressable
+          <AnimatedPressable
             accessibilityLabel={`${t('home.today')} ${t('tabs.stats')}`}
             accessibilityRole="button"
             disabled={!currentDayKey}
             hitSlop={10}
             onPress={() => handleOpenRecordInStats(currentDayKey)}
+            pressedScale={0.9}
             style={({ pressed }) => [
               styles.headerIcon,
               pressed && styles.headerIconPressed,
@@ -405,13 +406,14 @@ export default function HomeScreen() {
             ]}
           >
             <Ionicons color={colors.text} name="calendar-clear-outline" size={24} />
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
-        <Pressable
+        <AnimatedPressable
           accessibilityRole={canToggleRecordButton ? 'button' : undefined}
           disabled={!canToggleRecordButton}
           onPress={handleToggleRecordButton}
+          pressedScale={canToggleRecordButton ? 0.99 : 1}
           style={({ pressed }) => [
             styles.todayPanelShell,
             todayRecord && styles.todayPanelRecorded,
@@ -490,7 +492,7 @@ export default function HomeScreen() {
               <View style={styles.clockCenter} />
             </View>
           </LinearGradient>
-        </Pressable>
+        </AnimatedPressable>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>{t('home.recentRecords')}</Text>
@@ -535,15 +537,17 @@ export default function HomeScreen() {
                       {formatDuration(record.minutes_since_start, recordUnit)}
                     </Text>
                   )}
-                  <Pressable
+                  <AnimatedPressable
                     accessibilityLabel={`${formatDayLabel(record.day_key)} ${t('tabs.stats')}`}
                     accessibilityRole="button"
                     hitSlop={10}
                     onPress={() => handleOpenRecordInStats(record.day_key)}
+                    pressedScale={0.92}
+                    pressedTranslateX={4}
                     style={styles.recordArrowButton}
                   >
                     <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
-                  </Pressable>
+                  </AnimatedPressable>
                 </View>
               </View>
             ))

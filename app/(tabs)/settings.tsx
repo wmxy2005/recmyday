@@ -4,12 +4,10 @@ import { File, Paths } from 'expo-file-system';
 import { useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useMemo, useState } from 'react';
+import { type ComponentProps, useCallback, useMemo, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,6 +16,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { ConfirmationDialog } from '@/components/ConfirmationDialog';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   getAllDayRecords,
@@ -36,6 +36,13 @@ import { radius, spacing, useAppTheme } from '@/theme';
 import { formatTimeFromMinutes, type RecordUnit } from '@/utils/date';
 
 type SettingSection = 'startTime' | 'recordUnit' | 'recentRecords' | 'separateRecord';
+
+type PromptDialog = {
+  iconName: ComponentProps<typeof Ionicons>['name'];
+  message: string;
+  title: string;
+  variant?: 'danger' | 'primary' | 'success';
+};
 
 const recentRecordOptions = [5, 10, 20, 30];
 const exportSchemaVersion = 1;
@@ -193,23 +200,6 @@ function readImportFileWeb() {
   });
 }
 
-function confirmImportWeb(message: string) {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  return window.confirm(message);
-}
-
-function showMessage(title: string, message: string) {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    window.alert(`${title}\n\n${message}`);
-    return;
-  }
-
-  Alert.alert(title, message);
-}
-
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const theme = useAppTheme();
@@ -223,6 +213,8 @@ export default function SettingsScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingSection | null>(null);
+  const [pendingImportRecords, setPendingImportRecords] = useState<ImportDayRecord[] | null>(null);
+  const [promptDialog, setPromptDialog] = useState<PromptDialog | null>(null);
 
   const loadSettings = useCallback(async () => {
     const [startMinutes, unit, limit, separateEnabled] = await Promise.all([
@@ -250,17 +242,24 @@ export default function SettingsScreen() {
       pendingStartMinutes < 0 ||
       pendingStartMinutes > 23 * 60 + 59
     ) {
-      Alert.alert(t('settings.invalidTimeTitle'), t('settings.invalidTimeMessage'));
+      setPromptDialog({
+        iconName: 'alert-circle-outline',
+        title: t('settings.invalidTimeTitle'),
+        message: t('settings.invalidTimeMessage'),
+        variant: 'danger',
+      });
       return;
     }
 
     const parsedRecentRecordLimit = Number(recentRecordLimit);
 
     if (!Number.isInteger(parsedRecentRecordLimit) || parsedRecentRecordLimit < 1) {
-      Alert.alert(
-        t('settings.invalidRecentRecordsTitle'),
-        t('settings.invalidRecentRecordsMessage'),
-      );
+      setPromptDialog({
+        iconName: 'alert-circle-outline',
+        title: t('settings.invalidRecentRecordsTitle'),
+        message: t('settings.invalidRecentRecordsMessage'),
+        variant: 'danger',
+      });
       return;
     }
 
@@ -296,9 +295,17 @@ export default function SettingsScreen() {
       };
       const filename = `recmyday-records-${exportedAt.slice(0, 10)}.json`;
       const fileContent = JSON.stringify(exportFile, null, 2);
+      const showExportSuccess = () =>
+        setPromptDialog({
+          iconName: 'download-outline',
+          title: t('settings.exportSuccessTitle'),
+          message: t('settings.exportSuccessMessage', { count: records.length }),
+          variant: 'success',
+        });
 
       if (Platform.OS === 'web') {
         downloadExportFileWeb(filename, fileContent);
+        showExportSuccess();
         return;
       }
 
@@ -311,7 +318,12 @@ export default function SettingsScreen() {
       file.write(fileContent);
 
       if (!(await Sharing.isAvailableAsync())) {
-        Alert.alert(t('settings.exportUnavailableTitle'), t('settings.exportUnavailableMessage'));
+        setPromptDialog({
+          iconName: 'alert-circle-outline',
+          title: t('settings.exportUnavailableTitle'),
+          message: t('settings.exportUnavailableMessage'),
+          variant: 'danger',
+        });
         return;
       }
 
@@ -320,65 +332,57 @@ export default function SettingsScreen() {
         dialogTitle: t('settings.exportShareTitle'),
         UTI: 'public.json',
       });
+      showExportSuccess();
     } catch {
-      Alert.alert(t('settings.exportFailedTitle'), t('settings.exportFailedMessage'));
+      setPromptDialog({
+        iconName: 'alert-circle-outline',
+        title: t('settings.exportFailedTitle'),
+        message: t('settings.exportFailedMessage'),
+        variant: 'danger',
+      });
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const executeImport = async (records: ImportDayRecord[]) => {
+    try {
+      setIsTransferring(true);
+      await replaceAllDayRecords(db, records);
+      setPromptDialog({
+        iconName: 'cloud-upload-outline',
+        title: t('settings.importSuccessTitle'),
+        message: t('settings.importSuccessMessage', { count: records.length }),
+        variant: 'success',
+      });
+    } catch {
+      setPromptDialog({
+        iconName: 'alert-circle-outline',
+        title: t('settings.importFailedTitle'),
+        message: t('settings.importFailedMessage'),
+        variant: 'danger',
+      });
     } finally {
       setIsTransferring(false);
     }
   };
 
   const importRecords = (records: ImportDayRecord[]) => {
-    if (Platform.OS === 'web') {
-      const confirmed = confirmImportWeb(
-        t('settings.importConfirmMessage', { count: records.length }),
-      );
+    setPendingImportRecords(records);
+  };
 
-      if (!confirmed) {
-        return;
-      }
+  const handleCancelImport = () => {
+    setPendingImportRecords(null);
+  };
 
-      void (async () => {
-        try {
-          setIsTransferring(true);
-          await replaceAllDayRecords(db, records);
-          showMessage(
-            t('settings.importSuccessTitle'),
-            t('settings.importSuccessMessage', { count: records.length }),
-          );
-        } catch {
-          showMessage(t('settings.importFailedTitle'), t('settings.importFailedMessage'));
-        } finally {
-          setIsTransferring(false);
-        }
-      })();
+  const handleConfirmImport = () => {
+    if (!pendingImportRecords) {
       return;
     }
 
-    Alert.alert(
-      t('settings.importConfirmTitle'),
-      t('settings.importConfirmMessage', { count: records.length }),
-      [
-        { text: t('settings.importCancel'), style: 'cancel' },
-        {
-          text: t('settings.importConfirmAction'),
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsTransferring(true);
-              await replaceAllDayRecords(db, records);
-              showMessage(
-                t('settings.importSuccessTitle'),
-                t('settings.importSuccessMessage', { count: records.length }),
-              );
-            } catch {
-              showMessage(t('settings.importFailedTitle'), t('settings.importFailedMessage'));
-            } finally {
-              setIsTransferring(false);
-            }
-          },
-        },
-      ],
-    );
+    const records = pendingImportRecords;
+    setPendingImportRecords(null);
+    void executeImport(records);
   };
 
   const handleImport = async () => {
@@ -412,7 +416,12 @@ export default function SettingsScreen() {
       setIsTransferring(false);
       importRecords(records);
     } catch {
-      showMessage(t('settings.importInvalidTitle'), t('settings.importInvalidMessage'));
+      setPromptDialog({
+        iconName: 'alert-circle-outline',
+        title: t('settings.importInvalidTitle'),
+        message: t('settings.importInvalidMessage'),
+        variant: 'danger',
+      });
     } finally {
       setIsTransferring(false);
     }
@@ -444,11 +453,13 @@ export default function SettingsScreen() {
           <View style={styles.header}>
             <Text style={styles.title}>{t('settings.title')}</Text>
             <View style={styles.headerActions}>
-              <Pressable
+              <AnimatedPressable
                 accessibilityLabel={t('settings.exportRecords')}
                 accessibilityRole="button"
                 disabled={isTransferring}
                 onPress={handleExport}
+                pressedScale={0.9}
+                pressedTranslateY={1}
                 style={({ pressed }) => [
                   styles.headerButton,
                   pressed && styles.headerButtonPressed,
@@ -456,12 +467,14 @@ export default function SettingsScreen() {
                 ]}
               >
                 <Ionicons color={colors.text} name="download-outline" size={23} />
-              </Pressable>
-              <Pressable
+              </AnimatedPressable>
+              <AnimatedPressable
                 accessibilityLabel={t('settings.importRecords')}
                 accessibilityRole="button"
                 disabled={isTransferring}
                 onPress={handleImport}
+                pressedScale={0.9}
+                pressedTranslateY={1}
                 style={({ pressed }) => [
                   styles.headerButton,
                   pressed && styles.headerButtonPressed,
@@ -469,7 +482,7 @@ export default function SettingsScreen() {
                 ]}
               >
                 <Ionicons color={colors.text} name="cloud-upload-outline" size={23} />
-              </Pressable>
+              </AnimatedPressable>
             </View>
           </View>
 
@@ -480,9 +493,10 @@ export default function SettingsScreen() {
                 expandedSection === 'startTime' && styles.optionCardTimeActive,
               ]}
             >
-              <Pressable
+              <AnimatedPressable
                 accessibilityRole="button"
                 onPress={() => handleToggleSection('startTime')}
+                pressedScale={0.985}
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.timeTile]}>
@@ -501,7 +515,7 @@ export default function SettingsScreen() {
                   'startTime',
                   expandedSection === 'startTime' ? colors.primary : colors.mutedSubtle,
                 )}
-              </Pressable>
+              </AnimatedPressable>
 
               {expandedSection === 'startTime' ? (
                 <View style={styles.optionBody}>
@@ -529,9 +543,10 @@ export default function SettingsScreen() {
                 expandedSection === 'separateRecord' && styles.optionCardSeparateActive,
               ]}
             >
-              <Pressable
+              <AnimatedPressable
                 accessibilityRole="button"
                 onPress={() => handleToggleSection('separateRecord')}
+                pressedScale={0.985}
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.separateTile]}>
@@ -557,7 +572,7 @@ export default function SettingsScreen() {
                   'separateRecord',
                   expandedSection === 'separateRecord' ? colors.danger : colors.mutedSubtle,
                 )}
-              </Pressable>
+              </AnimatedPressable>
 
               {expandedSection === 'separateRecord' ? (
                 <View style={styles.optionBody}>
@@ -579,11 +594,12 @@ export default function SettingsScreen() {
                     const isActive = separateRecordEnabled === item.value;
 
                     return (
-                      <Pressable
+                      <AnimatedPressable
                         accessibilityRole="radio"
                         accessibilityState={{ checked: isActive }}
                         key={String(item.value)}
                         onPress={() => setSeparateRecordEnabled(item.value)}
+                        pressedScale={0.985}
                         style={[styles.choiceRow, isActive && styles.choiceRowSeparateActive]}
                       >
                         <View style={[styles.radio, isActive && styles.radioSeparateActive]}>
@@ -595,7 +611,7 @@ export default function SettingsScreen() {
                           <Text style={styles.choiceTitle}>{item.label}</Text>
                           <Text style={styles.choiceDescription}>{item.description}</Text>
                         </View>
-                      </Pressable>
+                      </AnimatedPressable>
                     );
                   })}
                   <View style={styles.tipRow}>
@@ -614,9 +630,10 @@ export default function SettingsScreen() {
                 expandedSection === 'recordUnit' && styles.optionCardUnitActive,
               ]}
             >
-              <Pressable
+              <AnimatedPressable
                 accessibilityRole="button"
                 onPress={() => handleToggleSection('recordUnit')}
+                pressedScale={0.985}
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.unitTile]}>
@@ -635,7 +652,7 @@ export default function SettingsScreen() {
                   'recordUnit',
                   expandedSection === 'recordUnit' ? colors.info : colors.mutedSubtle,
                 )}
-              </Pressable>
+              </AnimatedPressable>
 
               {expandedSection === 'recordUnit' ? (
                 <View style={styles.optionBody}>
@@ -657,11 +674,12 @@ export default function SettingsScreen() {
                     const isActive = recordUnit === item.value;
 
                     return (
-                      <Pressable
+                      <AnimatedPressable
                         accessibilityRole="radio"
                         accessibilityState={{ checked: isActive }}
                         key={item.value}
                         onPress={() => setRecordUnit(item.value)}
+                        pressedScale={0.985}
                         style={[styles.choiceRow, isActive && styles.choiceRowUnitActive]}
                       >
                         <View style={[styles.radio, isActive && styles.radioUnitActive]}>
@@ -673,7 +691,7 @@ export default function SettingsScreen() {
                           <Text style={styles.choiceTitle}>{item.label}</Text>
                           <Text style={styles.choiceDescription}>{item.description}</Text>
                         </View>
-                      </Pressable>
+                      </AnimatedPressable>
                     );
                   })}
                   <View style={styles.tipRow}>
@@ -692,9 +710,10 @@ export default function SettingsScreen() {
                 expandedSection === 'recentRecords' && styles.optionCardListActive,
               ]}
             >
-              <Pressable
+              <AnimatedPressable
                 accessibilityRole="button"
                 onPress={() => handleToggleSection('recentRecords')}
+                pressedScale={0.985}
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.listTile]}>
@@ -720,7 +739,7 @@ export default function SettingsScreen() {
                   'recentRecords',
                   expandedSection === 'recentRecords' ? colors.highlight : colors.mutedSubtle,
                 )}
-              </Pressable>
+              </AnimatedPressable>
 
               {expandedSection === 'recentRecords' ? (
                 <View style={styles.optionBody}>
@@ -731,11 +750,12 @@ export default function SettingsScreen() {
                     const isActive = recentRecordLimit === String(option);
 
                     return (
-                      <Pressable
+                      <AnimatedPressable
                         accessibilityRole="radio"
                         accessibilityState={{ checked: isActive }}
                         key={option}
                         onPress={() => setRecentRecordLimit(String(option))}
+                        pressedScale={0.985}
                         style={[styles.limitRow, isActive && styles.limitRowActive]}
                       >
                         <Text style={[styles.limitText, isActive && styles.limitTextActive]}>
@@ -746,7 +766,7 @@ export default function SettingsScreen() {
                             <Ionicons color={colors.surface} name="checkmark" size={16} />
                           ) : null}
                         </View>
-                      </Pressable>
+                      </AnimatedPressable>
                     );
                   })}
                   <View style={styles.tipRow}>
@@ -760,10 +780,12 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             disabled={isSaving}
             onPress={handleSave}
+            pressedScale={0.96}
+            pressedTranslateY={1}
             style={({ pressed }) => [
               styles.saveButton,
               pressed && styles.saveButtonPressed,
@@ -774,13 +796,33 @@ export default function SettingsScreen() {
             <Text style={styles.saveText}>
               {isSaving ? t('settings.saving') : t('settings.save')}
             </Text>
-          </Pressable>
+          </AnimatedPressable>
 
           <Text style={styles.subtitle}>
             {t('settings.currentStartTime', { time: formatTimeFromMinutes(pendingStartMinutes) })}
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
+      <ConfirmationDialog
+        cancelLabel={t('settings.importCancel')}
+        confirmLabel={t('settings.importConfirmAction')}
+        iconName="cloud-upload-outline"
+        message={t('settings.importConfirmMessage', { count: pendingImportRecords?.length ?? 0 })}
+        onCancel={handleCancelImport}
+        onConfirm={handleConfirmImport}
+        title={t('settings.importConfirmTitle')}
+        variant="primary"
+        visible={pendingImportRecords !== null}
+      />
+      <ConfirmationDialog
+        confirmLabel={t('settings.promptOk')}
+        iconName={promptDialog?.iconName}
+        message={promptDialog?.message ?? ''}
+        onConfirm={() => setPromptDialog(null)}
+        title={promptDialog?.title ?? ''}
+        variant={promptDialog?.variant ?? 'success'}
+        visible={promptDialog !== null}
+      />
     </SafeAreaView>
   );
 }

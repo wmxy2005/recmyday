@@ -13,7 +13,6 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Easing,
   Modal,
@@ -29,6 +28,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { ConfirmationDialog } from '@/components/ConfirmationDialog';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   type DayRecord,
@@ -68,6 +69,7 @@ type AnimatedSheetModalProps = {
   dimBackdrop?: boolean;
   onClose: () => void;
   onExitComplete?: () => void;
+  overlay?: ReactNode;
   sheetStyle: StyleProp<ViewStyle>;
   visible: boolean;
 };
@@ -78,6 +80,7 @@ function AnimatedSheetModal({
   dimBackdrop = true,
   onClose,
   onExitComplete,
+  overlay,
   sheetStyle,
   visible,
 }: AnimatedSheetModalProps) {
@@ -151,6 +154,7 @@ function AnimatedSheetModal({
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       )}
       <Animated.View style={[sheetStyle, sheetAnimatedStyle]}>{children}</Animated.View>
+      {overlay}
     </Modal>
   );
 }
@@ -255,6 +259,8 @@ export default function StatsScreen() {
   const [dayRecordsSheetVisible, setDayRecordsSheetVisible] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [recordEditorVisible, setRecordEditorVisible] = useState(false);
+  const [pendingDeleteRecordId, setPendingDeleteRecordId] = useState<number | null>(null);
+  const [promptDialog, setPromptDialog] = useState<{ message: string; title: string } | null>(null);
   const [draftStartTime, setDraftStartTime] = useState('09:00');
   const [draftEndTime, setDraftEndTime] = useState('09:30');
   const [expandedEditorTimeSection, setExpandedEditorTimeSection] =
@@ -404,7 +410,21 @@ export default function StatsScreen() {
     setMonthDate(new Date());
   };
 
-  const handleDeleteRecord = async (recordId: number) => {
+  const handleRequestDeleteRecord = (recordId: number) => {
+    setPendingDeleteRecordId(recordId);
+  };
+
+  const handleCancelDeleteRecord = () => {
+    setPendingDeleteRecordId(null);
+  };
+
+  const handleConfirmDeleteRecord = async () => {
+    if (pendingDeleteRecordId === null) {
+      return;
+    }
+
+    const recordId = pendingDeleteRecordId;
+    setPendingDeleteRecordId(null);
     await deleteRecordById(db, recordId);
     await loadData();
   };
@@ -458,7 +478,10 @@ export default function StatsScreen() {
     const endMinutes = parseTimeInput(draftEndTime);
 
     if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
-      Alert.alert(t('stats.invalidRecordTimeTitle'), t('stats.invalidRecordTimeMessage'));
+      setPromptDialog({
+        title: t('stats.invalidRecordTimeTitle'),
+        message: t('stats.invalidRecordTimeMessage'),
+      });
       return;
     }
 
@@ -491,9 +514,10 @@ export default function StatsScreen() {
           isExpanded && { borderColor: accentColor, backgroundColor: '#FFFDFC' },
         ]}
       >
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           onPress={() => setExpandedEditorTimeSection(isExpanded ? null : section)}
+          pressedScale={0.985}
           style={styles.editorTimeRow}
         >
           <View style={styles.editorInputMain}>
@@ -510,7 +534,7 @@ export default function StatsScreen() {
             name={isExpanded ? 'chevron-up' : 'chevron-forward'}
             size={21}
           />
-        </Pressable>
+        </AnimatedPressable>
 
         {isExpanded ? (
           <View style={styles.editorTimePickerBody}>
@@ -535,12 +559,13 @@ export default function StatsScreen() {
         >
         <View style={styles.titleHeader}>
           <Text style={styles.screenTitle}>{t('tabs.stats')}</Text>
-          <Pressable
+          <AnimatedPressable
             accessibilityLabel={t('stats.goToCurrentMonth')}
             accessibilityRole="button"
             disabled={isCurrentMonth}
             hitSlop={10}
             onPress={handleGoToCurrentMonth}
+            pressedScale={0.9}
             style={({ pressed }) => [
               styles.headerIconButton,
               pressed && styles.headerIconButtonPressed,
@@ -548,29 +573,33 @@ export default function StatsScreen() {
             ]}
           >
             <Ionicons color={colors.text} name="today-outline" size={24} />
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         <View style={styles.monthSelector}>
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             onPress={() => handleChangeMonth(-1)}
+            pressedScale={0.9}
+            pressedTranslateX={-4}
             style={styles.monthButton}
           >
             <Ionicons color={colors.text} name="chevron-back" size={23} />
-          </Pressable>
+          </AnimatedPressable>
 
           <View style={styles.monthTitleGroup}>
             <Text style={styles.monthTitle}>{formatMonthTitle(monthDate)}</Text>
           </View>
 
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             onPress={() => handleChangeMonth(1)}
+            pressedScale={0.9}
+            pressedTranslateX={4}
             style={styles.monthButton}
           >
             <Ionicons color={colors.highlight} name="chevron-forward" size={23} />
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         <LinearGradient
@@ -622,15 +651,17 @@ export default function StatsScreen() {
                   const isSelected = selectedDayKey !== null && selectedDayKey === cell.dayKey;
 
                   return (
-                    <Pressable
+                    <AnimatedPressable
                       key={cell.key}
                       accessibilityRole={cell.day ? 'button' : undefined}
+                      containerStyle={styles.dayCellContainer}
                       disabled={!cell.dayKey}
                       onPress={() => {
                         if (cell.dayKey) {
                           handleSelectDay(cell.dayKey);
                         }
                       }}
+                      pressedScale={cell.dayKey ? 0.94 : 1}
                       style={[
                         styles.dayCell,
                         !cell.day && styles.emptyCell,
@@ -667,7 +698,7 @@ export default function StatsScreen() {
                           </Text>
                         </>
                       ) : null}
-                    </Pressable>
+                    </AnimatedPressable>
                   );
                 })}
               </View>
@@ -679,6 +710,20 @@ export default function StatsScreen() {
         backdropStyle={styles.modalBackdrop}
         onClose={handleCloseDayRecords}
         onExitComplete={handleDayRecordsExitComplete}
+        overlay={
+          <ConfirmationDialog
+            cancelLabel={t('stats.cancel')}
+            confirmLabel={t('stats.delete')}
+            contained
+            iconName="trash-outline"
+            message={t('stats.confirmClearMessage')}
+            onCancel={handleCancelDeleteRecord}
+            onConfirm={handleConfirmDeleteRecord}
+            title={`${t('stats.deleteRecord')}?`}
+            variant="danger"
+            visible={pendingDeleteRecordId !== null}
+          />
+        }
         sheetStyle={styles.dayRecordsSheet}
         visible={selectedDayKey !== null && dayRecordsSheetVisible}
       >
@@ -700,14 +745,15 @@ export default function StatsScreen() {
               })}
             </Text>
           </View>
-          <Pressable
+          <AnimatedPressable
             accessibilityLabel={t('stats.closeRecords')}
             accessibilityRole="button"
             onPress={handleCloseDayRecords}
+            pressedScale={0.9}
             style={styles.sheetCloseButton}
           >
             <Ionicons color={colors.textSoft} name="close" size={24} />
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         <ScrollView contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
@@ -715,8 +761,9 @@ export default function StatsScreen() {
             selectedDayRecords.map((record) => (
               <SwipeRecordRow
                 colors={colors}
+                deleteActionHidden={pendingDeleteRecordId !== null}
                 key={record.id}
-                onDelete={handleDeleteRecord}
+                onDelete={handleRequestDeleteRecord}
                 onEdit={handleOpenEditRecord}
                 record={record}
                 recordUnit={recordUnit}
@@ -734,14 +781,16 @@ export default function StatsScreen() {
         </ScrollView>
         {canCreateSelectedDayRecord ? (
           <>
-            <Pressable
+            <AnimatedPressable
               accessibilityRole="button"
               onPress={handleOpenCreateRecord}
+              pressedScale={0.96}
+              pressedTranslateY={1}
               style={styles.createRecordButton}
             >
               <Ionicons color={colors.surface} name="add" size={28} />
               <Text style={styles.createRecordText}>{t('stats.newRecord')}</Text>
-            </Pressable>
+            </AnimatedPressable>
             <Text style={styles.createRecordHint}>{t('stats.newRecordHint')}</Text>
           </>
         ) : null}
@@ -764,14 +813,15 @@ export default function StatsScreen() {
               {selectedDayKey ? formatDayLabel(selectedDayKey) : t('stats.noSelectedDay')}
             </Text>
           </View>
-          <Pressable
+          <AnimatedPressable
             accessibilityLabel={t('stats.closeRecords')}
             accessibilityRole="button"
             onPress={handleCloseRecordEditor}
+            pressedScale={0.9}
             style={styles.sheetCloseButton}
           >
             <Ionicons color={colors.textSoft} name="close" size={24} />
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         <View style={styles.editorForm}>
@@ -814,28 +864,44 @@ export default function StatsScreen() {
         </View>
 
         <View style={styles.editorSheetActions}>
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
+            containerStyle={styles.cancelRecordButtonContainer}
             onPress={handleCloseRecordEditor}
+            pressedScale={0.96}
+            pressedTranslateY={1}
             style={styles.cancelRecordButton}
           >
             <Text style={styles.cancelRecordText}>{t('stats.cancel')}</Text>
-          </Pressable>
-          <Pressable
+          </AnimatedPressable>
+          <AnimatedPressable
             accessibilityRole="button"
+            containerStyle={styles.saveRecordButtonContainer}
             onPress={handleSaveRecordEditor}
+            pressedScale={0.96}
+            pressedTranslateY={1}
             style={styles.saveRecordButton}
           >
             <Text style={styles.saveRecordText}>{t('stats.saveRecord')}</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
       </AnimatedSheetModal>
+      <ConfirmationDialog
+        confirmLabel={t('stats.promptOk')}
+        iconName="alert-circle-outline"
+        message={promptDialog?.message ?? ''}
+        onConfirm={() => setPromptDialog(null)}
+        title={promptDialog?.title ?? ''}
+        variant="danger"
+        visible={promptDialog !== null}
+      />
     </SafeAreaView>
   );
 }
 
 type SwipeRecordRowProps = {
   colors: ReturnType<typeof useAppTheme>['colors'];
+  deleteActionHidden?: boolean;
   onDelete: (id: number) => void;
   onEdit: (record: DayRecord) => void;
   record: DayRecord;
@@ -847,6 +913,7 @@ type SwipeRecordRowProps = {
 
 function SwipeRecordRow({
   colors,
+  deleteActionHidden = false,
   onDelete,
   onEdit,
   record,
@@ -894,17 +961,28 @@ function SwipeRecordRow({
     [snapTo, translateX],
   );
 
+  useEffect(() => {
+    if (deleteActionHidden) {
+      snapTo(0);
+    }
+  }, [deleteActionHidden, snapTo]);
+
   return (
-    <View style={styles.swipeRecordShell}>
-      <Pressable
-        accessibilityLabel={t('stats.deleteRecord')}
-        accessibilityRole="button"
-        onPress={() => onDelete(record.id)}
-        style={styles.recordDeleteAction}
-      >
-        <Ionicons color={colors.surface} name="trash-outline" size={21} />
-        <Text style={styles.recordDeleteText}>{t('stats.delete')}</Text>
-      </Pressable>
+    <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
+      {deleteActionHidden ? null : (
+        <AnimatedPressable
+          accessibilityLabel={t('stats.deleteRecord')}
+          accessibilityRole="button"
+          containerStyle={styles.recordDeleteAction}
+          onPress={() => onDelete(record.id)}
+          pressedScale={0.94}
+          pressedTranslateX={-2}
+          style={styles.recordDeleteActionButton}
+        >
+          <Ionicons color={colors.surface} name="trash-outline" size={21} />
+          <Text style={styles.recordDeleteText}>{t('stats.delete')}</Text>
+        </AnimatedPressable>
+      )}
       <Animated.View
         {...panResponder.panHandlers}
         style={[
@@ -936,14 +1014,16 @@ function SwipeRecordRow({
         >
           {formatDuration(record.minutes_since_start, recordUnit)}
         </Text>
-        <Pressable
+        <AnimatedPressable
           accessibilityRole="button"
           hitSlop={8}
           onPress={() => onEdit(record)}
+          pressedScale={0.92}
+          pressedTranslateX={4}
           style={styles.recordEditButton}
         >
           <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={20} />
-        </Pressable>
+        </AnimatedPressable>
       </Animated.View>
     </View>
   );
@@ -1102,8 +1182,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     flexDirection: 'row',
     gap: spacing.xs,
   },
-  dayCell: {
+  dayCellContainer: {
     flex: 1,
+  },
+  dayCell: {
     aspectRatio: 0.94,
     paddingVertical: spacing.xs,
     borderRadius: 999,
@@ -1221,12 +1303,18 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     overflow: 'hidden',
     backgroundColor: colors.danger,
   },
+  swipeRecordShellHidden: {
+    backgroundColor: 'transparent',
+  },
   recordDeleteAction: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     width: deleteActionWidth,
+  },
+  recordDeleteActionButton: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
@@ -1410,8 +1498,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.md,
     marginTop: spacing.xl,
   },
-  cancelRecordButton: {
+  cancelRecordButtonContainer: {
     flex: 1,
+  },
+  cancelRecordButton: {
     height: 54,
     borderRadius: 20,
     alignItems: 'center',
@@ -1425,8 +1515,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontSize: 16,
     fontWeight: '900',
   },
-  saveRecordButton: {
+  saveRecordButtonContainer: {
     flex: 1.5,
+  },
+  saveRecordButton: {
     height: 54,
     borderRadius: 20,
     alignItems: 'center',

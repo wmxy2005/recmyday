@@ -1,0 +1,12 @@
+Starting project at D:\src\recmyday
+Starting Metro Bundler
+
+ ERROR  An unknown error occurred while installing React Native DevTools. Details:
+
+spawn EPERM
+Waiting on http://localhost:8082
+Logs for your project will appear below.
+Web node_modules\.pnpm\expo-router@55.0.14_@expo+l_87d1fc2942c6941599ac673751b79736\node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web Bundled 679ms node_modules\.pnpm\expo-router@55.0.14_@expo+l_87d1fc2942c6941599ac673751b79736\node_modules\expo-router\entry.js (1389 modules)
+ LOG  [web] Logs will appear in the browser console
+Web Bundled 44ms node_modules\.pnpm\expo-sqlite@55.0.15_expo@55_029056f444b242ba085e8b408d507443\node_modules\expo-sqlite\web\worker.ts (1 module)

@@ -1,9 +1,10 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Animated, { type AnimatedStyle } from 'react-native-reanimated';
 import type { ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { spacing, useAppTheme } from '@/theme';
 
 type RecordButtonProps = {
@@ -132,12 +133,14 @@ function RecordButtonComponent({
 
   return (
     <Animated.View pointerEvents={pointerEvents} style={animatedStyle}>
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         disabled={disabled}
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
+        pressedScale={0.96}
+        pressedTranslateY={1}
         style={({ pressed }) => [
           styles.button,
           tone === 'danger' && styles.danger,
@@ -153,11 +156,6 @@ function RecordButtonComponent({
             style={[styles.cancelProgressFill, { width: `${cancelProgress * 100}%` }]}
           />
         ) : null}
-        <View style={styles.sparkRing}>
-          <View style={[styles.spark, styles.sparkTop]} />
-          <View style={[styles.spark, styles.sparkRight]} />
-          <View style={[styles.spark, styles.sparkLeft]} />
-        </View>
         <View style={styles.iconBadge}>
           <Ionicons
             color={colors.surface}
@@ -173,7 +171,7 @@ function RecordButtonComponent({
               : `${elapsedMinutes} ${recordingUnitLabel} ${remainingSeconds} ${secondsUnitLabel}`}
           </Text>
         </View>
-      </Pressable>
+      </AnimatedPressable>
     </Animated.View>
   );
 }
@@ -246,39 +244,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   disabled: {
     opacity: 0.7,
-  },
-  sparkRing: {
-    position: 'absolute',
-    left: -11,
-    top: -15,
-    width: 92,
-    height: 92,
-    pointerEvents: 'none',
-    zIndex: 1,
-  },
-  spark: {
-    position: 'absolute',
-    width: 4,
-    height: 10,
-    borderRadius: 2,
-    backgroundColor: colors.accent,
-  },
-  sparkTop: {
-    left: 45,
-    top: 0,
-    transform: [{ rotate: '8deg' }],
-  },
-  sparkRight: {
-    right: 5,
-    top: 34,
-    backgroundColor: colors.info,
-    transform: [{ rotate: '48deg' }],
-  },
-  sparkLeft: {
-    left: 7,
-    bottom: 19,
-    backgroundColor: colors.danger,
-    transform: [{ rotate: '-35deg' }],
   },
   });
 };
