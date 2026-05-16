@@ -102,8 +102,11 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        animation: 'shift',
+        animation: 'none',
         headerShown: false,
+        sceneStyle: {
+          backgroundColor: colors.background,
+        },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarButton: (props) => <AnimatedTabBarButton {...props} />,
@@ -124,7 +127,8 @@ export default function TabLayout() {
           shadowOffset: { width: 0, height: -8 },
           shadowOpacity: isDark ? 0.2 : 0.08,
           shadowRadius: 22,
-          elevation: 12,
+          elevation: 24,
+          zIndex: 20,
         },
         tabBarItemStyle: {
           height: 58,
@@ -179,10 +183,10 @@ const styles = StyleSheet.create({
   },
   pressedHalo: {
     position: 'absolute',
-    top: 6,
-    width: 76,
-    height: 46,
-    borderRadius: 23,
+    top: 2,
+    width: 94,
+    height: 54,
+    borderRadius: 27,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.28,
     shadowRadius: 18,

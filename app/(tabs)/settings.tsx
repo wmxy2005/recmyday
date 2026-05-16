@@ -272,6 +272,7 @@ export default function SettingsScreen() {
     setHour(String(Math.floor(nextMinutes / 60)).padStart(2, '0'));
     setMinute(String(nextMinutes % 60).padStart(2, '0'));
     setRecentRecordLimit(String(nextRecentRecordLimit));
+    setExpandedSection(null);
     setIsSaving(false);
   };
 
@@ -335,7 +336,7 @@ export default function SettingsScreen() {
               {expandedSection === 'startTime' ? (
                 <View style={styles.optionBody}>
                   <Text style={[styles.optionTitle, { color: colors.primary }]}>
-                    选择开始时间
+                    {t('settings.chooseStartTime')}
                   </Text>
                   <View style={styles.timePickerPanel}>
                     <WheelPicker
@@ -357,7 +358,7 @@ export default function SettingsScreen() {
                   <View style={styles.tipRow}>
                     <Ionicons color={colors.accent} name="bulb-outline" size={17} />
                     <Text style={[styles.tipText, { color: colors.accent }]}>
-                      设置每天记录的开始时间点
+                      {t('settings.startTimeDescription')}
                     </Text>
                   </View>
                 </View>
@@ -395,17 +396,19 @@ export default function SettingsScreen() {
 
               {expandedSection === 'recordUnit' ? (
                 <View style={styles.optionBody}>
-                  <Text style={[styles.optionTitle, { color: colors.info }]}>选择记录单位</Text>
+                  <Text style={[styles.optionTitle, { color: colors.info }]}>
+                    {t('settings.chooseRecordUnit')}
+                  </Text>
                   {[
                     {
                       label: t('settings.minutes'),
                       value: 'minutes' as const,
-                      description: '以分钟为单位记录时间',
+                      description: t('settings.minutesUnitDescription'),
                     },
                     {
                       label: t('settings.hours'),
                       value: 'hours' as const,
-                      description: '以小时为单位记录时间',
+                      description: t('settings.hoursUnitDescription'),
                     },
                   ].map((item) => {
                     const isActive = recordUnit === item.value;
@@ -433,7 +436,7 @@ export default function SettingsScreen() {
                   <View style={styles.tipRow}>
                     <Ionicons color={colors.info} name="information-circle-outline" size={17} />
                     <Text style={[styles.tipText, { color: colors.info }]}>
-                      更改后，历史记录将按新单位显示
+                      {t('settings.recordUnitDescription')}
                     </Text>
                   </View>
                 </View>
@@ -468,7 +471,7 @@ export default function SettingsScreen() {
                     expandedSection === 'recentRecords' && { color: colors.highlight },
                   ]}
                 >
-                  {recentRecordLimit} 条
+                  {t('settings.recordsCount', { count: Number(recentRecordLimit) })}
                 </Text>
                 {renderChevron(
                   'recentRecords',
@@ -479,7 +482,7 @@ export default function SettingsScreen() {
               {expandedSection === 'recentRecords' ? (
                 <View style={styles.optionBody}>
                   <Text style={[styles.optionTitle, { color: colors.highlight }]}>
-                    选择显示的最近记录条数
+                    {t('settings.chooseRecentRecords')}
                   </Text>
                   {recentRecordOptions.map((option) => {
                     const isActive = recentRecordLimit === String(option);
@@ -493,7 +496,7 @@ export default function SettingsScreen() {
                         style={[styles.limitRow, isActive && styles.limitRowActive]}
                       >
                         <Text style={[styles.limitText, isActive && styles.limitTextActive]}>
-                          {option} 条
+                          {t('settings.recordsCount', { count: option })}
                         </Text>
                         <View style={[styles.radio, isActive && styles.radioListActive]}>
                           {isActive ? (
@@ -506,7 +509,7 @@ export default function SettingsScreen() {
                   <View style={styles.tipRow}>
                     <Ionicons color={colors.highlight} name="information-circle-outline" size={17} />
                     <Text style={[styles.tipText, { color: colors.highlight }]}>
-                      仅影响最近记录列表的显示数量
+                      {t('settings.recentRecordsDescription')}
                     </Text>
                   </View>
                 </View>

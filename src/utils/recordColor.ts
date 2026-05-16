@@ -8,8 +8,8 @@ export function getRecordMinutesColor(minutes: number) {
   }
 
   if (minutes < 90) {
-    return '#0D7DFF';
+    return '#22B66E';
   }
 
-  return '#22B66E';
+  return '#0D7DFF';
 }

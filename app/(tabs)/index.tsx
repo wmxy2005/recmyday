@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -35,6 +35,7 @@ import {
 import { radius, spacing, useAppTheme } from '@/theme';
 import {
   formatDayLabel,
+  formatDayWithWeekdayLabel,
   formatDuration,
   formatTimeFromMinutes,
   formatWeekdayLabel,
@@ -57,8 +58,43 @@ function formatRecordRange(record: DayRecord, startTimeMinutes: number) {
   return `${start} - ${end}`;
 }
 
+function parseRecordTime(value: string) {
+  const normalizedValue = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
+  const date = new Date(normalizedValue);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getClockHandsFromRecord(record: DayRecord | null) {
+  const date = record
+    ? parseRecordTime(record.updated_at) ?? parseRecordTime(record.recorded_at)
+    : null;
+
+  if (!date) {
+    return {
+      hour: 0,
+      minute: 0,
+    };
+  }
+
+  const hours = date.getHours() % 12;
+  const minutes = date.getMinutes();
+  const seconds = date.getSeconds();
+
+  return {
+    hour: hours * 30 + minutes * 0.5,
+    minute: minutes * 6 + seconds * 0.1,
+  };
+}
+
+const todayRecordButtonVisibility = {
+  dayKey: '',
+  visible: false,
+};
+
 export default function HomeScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
   const theme = useAppTheme();
   const { colors } = theme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -129,7 +165,19 @@ export default function HomeScreen() {
     setRecentRecordLimit(limit);
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
-    setShowRecordButton(!currentRecord && !getIsBeforeStartTime(startTime));
+    setShowRecordButton(() => {
+      const isBeforeStartTimeNow = getIsBeforeStartTime(startTime);
+
+      if (!currentRecord) {
+        return !isBeforeStartTimeNow;
+      }
+
+      return (
+        !isBeforeStartTimeNow &&
+        todayRecordButtonVisibility.dayKey === dayKey &&
+        todayRecordButtonVisibility.visible
+      );
+    });
     setRecords(recentRecords);
     setIsLoading(false);
   }, [db]);
@@ -225,6 +273,8 @@ export default function HomeScreen() {
 
     try {
       await upsertCurrentRecord(db);
+      todayRecordButtonVisibility.dayKey = currentDayKey;
+      todayRecordButtonVisibility.visible = false;
       setShowRecordButton(false);
       await loadData();
     } finally {
@@ -237,11 +287,27 @@ export default function HomeScreen() {
       return;
     }
 
-    setShowRecordButton((current) => !current);
+    setShowRecordButton((current) => {
+      const next = !current;
+      todayRecordButtonVisibility.dayKey = todayRecord.day_key;
+      todayRecordButtonVisibility.visible = next;
+      return next;
+    });
+  };
+
+  const handleOpenRecordInStats = (dayKey: string) => {
+    router.push({
+      pathname: '/(tabs)/stats',
+      params: {
+        selectedDayKey: dayKey,
+        selectedAt: String(Date.now()),
+      },
+    });
   };
 
   const canToggleRecordButton = Boolean(todayRecord && !isBeforeStartTime);
   const isTodayPanelSelected = Boolean(todayRecord && showRecordButton);
+  const todayClockHands = useMemo(() => getClockHandsFromRecord(todayRecord), [todayRecord]);
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
@@ -249,7 +315,6 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>{t('home.today')}</Text>
-            <Text style={styles.subtitle}>{currentDayKey ? formatDayLabel(currentDayKey) : ''}</Text>
           </View>
           <View style={styles.headerIcon}>
             <Ionicons color={colors.text} name="calendar-clear-outline" size={24} />
@@ -274,7 +339,11 @@ export default function HomeScreen() {
             style={styles.todayPanel}
           >
             <View style={styles.todayCopy}>
-              <Text style={styles.cardLabel}>{t('home.today')}的时间记录</Text>
+              <Text style={styles.cardLabel}>
+                {currentDayKey
+                  ? formatDayWithWeekdayLabel(currentDayKey)
+                  : t('home.today')}
+              </Text>
               {isLoading ? (
                 <ActivityIndicator color={colors.primary} style={styles.loadingIndicator} />
               ) : todayRecord ? (
@@ -282,7 +351,7 @@ export default function HomeScreen() {
                   {recordUnit === 'minutes' ? (
                     <View style={styles.minutesRow}>
                       <Text style={styles.minutesNumber}>{todayRecord.minutes_since_start}</Text>
-                      <Text style={styles.minutesUnit}>分钟</Text>
+                      <Text style={styles.minutesUnit}>{t('date.minutesFullUnit')}</Text>
                     </View>
                   ) : (
                     <Text style={styles.minutesText}>
@@ -301,7 +370,7 @@ export default function HomeScreen() {
                     {isBeforeStartTime
                       ? t('home.startTime', { time: formatTimeFromMinutes(startTimeMinutes) })
                       : currentDayKey
-                        ? `${formatWeekdayLabel(currentDayKey)} · 可记录`
+                        ? t('home.recordAvailable', { weekday: formatWeekdayLabel(currentDayKey) })
                         : ''}
                   </Text>
                 </>
@@ -312,8 +381,26 @@ export default function HomeScreen() {
               <View style={[styles.clockTick, styles.clockTickRight]} />
               <View style={[styles.clockTick, styles.clockTickBottom]} />
               <View style={[styles.clockTick, styles.clockTickLeft]} />
-              <View style={styles.clockHandLong} />
-              <View style={styles.clockHandShort} />
+              <View
+                style={[
+                  styles.clockHandPivot,
+                  {
+                    transform: [{ rotate: `${todayClockHands.minute}deg` }],
+                  },
+                ]}
+              >
+                <View style={styles.clockHandLong} />
+              </View>
+              <View
+                style={[
+                  styles.clockHandPivot,
+                  {
+                    transform: [{ rotate: `${todayClockHands.hour}deg` }],
+                  },
+                ]}
+              >
+                <View style={styles.clockHandShort} />
+              </View>
               <View style={styles.clockCenter} />
             </View>
           </LinearGradient>
@@ -350,7 +437,7 @@ export default function HomeScreen() {
                       >
                         {record.minutes_since_start}
                       </Text>
-                      <Text style={styles.recordUnitText}>分钟</Text>
+                      <Text style={styles.recordUnitText}>{t('date.minutesFullUnit')}</Text>
                     </>
                   ) : (
                     <Text
@@ -362,7 +449,15 @@ export default function HomeScreen() {
                       {formatDuration(record.minutes_since_start, recordUnit)}
                     </Text>
                   )}
-                  <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
+                  <Pressable
+                    accessibilityLabel={`${formatDayLabel(record.day_key)} ${t('tabs.stats')}`}
+                    accessibilityRole="button"
+                    hitSlop={10}
+                    onPress={() => handleOpenRecordInStats(record.day_key)}
+                    style={styles.recordArrowButton}
+                  >
+                    <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
+                  </Pressable>
                 </View>
               </View>
             ))
@@ -411,12 +506,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontSize: 31,
     fontWeight: '900',
     letterSpacing: 0,
-  },
-  subtitle: {
-    color: colors.textSoft,
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 3,
   },
   headerIcon: {
     width: 40,
@@ -565,21 +654,28 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     left: 15,
     transform: [{ rotate: '90deg' }],
   },
-  clockHandLong: {
+  clockHandPivot: {
     position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clockHandLong: {
     width: 6,
     height: 43,
     borderRadius: 3,
     backgroundColor: '#FF7B25',
-    transform: [{ translateY: -15 }, { rotate: '-24deg' }],
+    transform: [{ translateY: -21.5 }],
   },
   clockHandShort: {
-    position: 'absolute',
     width: 6,
-    height: 33,
+    height: 28,
     borderRadius: 3,
     backgroundColor: '#FF7B25',
-    transform: [{ translateY: 12 }, { rotate: '-28deg' }],
+    transform: [{ translateY: -14 }],
   },
   clockCenter: {
     width: 12,
@@ -647,6 +743,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     color: colors.text,
     fontSize: 13,
     fontWeight: '800',
+  },
+  recordArrowButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -7,
   },
   emptyBox: {
     minHeight: 144,
