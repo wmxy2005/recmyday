@@ -61,6 +61,7 @@ import { getRecordMinutesColor } from '@/utils/recordColor';
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
 const deleteActionWidth = 82;
+const sheetFallbackHeight = 360;
 const modalGestureRootStyle = StyleSheet.create({
   root: {
     flex: 1,
@@ -69,6 +70,22 @@ const modalGestureRootStyle = StyleSheet.create({
 
 type EditorTimeSection = 'start' | 'end';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getSheetAnimationMetrics(height: number) {
+  const measuredHeight = Math.max(height, sheetFallbackHeight);
+
+  return {
+    backdropEnterDuration: clamp(Math.round(150 + measuredHeight * 0.1), 190, 270),
+    backdropExitDuration: clamp(Math.round(120 + measuredHeight * 0.07), 150, 220),
+    enterDuration: clamp(Math.round(190 + measuredHeight * 0.2), 260, 430),
+    exitDuration: clamp(Math.round(170 + measuredHeight * 0.16), 230, 370),
+    travel: clamp(Math.round(measuredHeight * 0.18), 64, 128),
+  };
+}
 
 type AnimatedSheetModalProps = {
   backdropStyle: StyleProp<ViewStyle>;
@@ -94,7 +111,11 @@ function AnimatedSheetModal({
   const [isMounted, setIsMounted] = useState(visible);
   const backdropProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const onExitCompleteRef = useRef(onExitComplete);
+  const sheetHeightRef = useRef(sheetFallbackHeight);
   const sheetProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const [sheetTravel, setSheetTravel] = useState(
+    () => getSheetAnimationMetrics(sheetFallbackHeight).travel,
+  );
 
   useEffect(() => {
     onExitCompleteRef.current = onExitComplete;
@@ -106,17 +127,17 @@ function AnimatedSheetModal({
 
     if (visible) {
       setIsMounted(true);
+      const metrics = getSheetAnimationMetrics(sheetHeightRef.current);
       Animated.parallel([
         Animated.timing(backdropProgress, {
-          duration: 220,
+          duration: metrics.backdropEnterDuration,
           easing: Easing.out(Easing.cubic),
           toValue: 1,
           useNativeDriver: true,
         }),
-        Animated.spring(sheetProgress, {
-          damping: 28,
-          mass: 0.85,
-          stiffness: 210,
+        Animated.timing(sheetProgress, {
+          duration: metrics.enterDuration,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
           toValue: 1,
           useNativeDriver: true,
         }),
@@ -128,15 +149,16 @@ function AnimatedSheetModal({
       return;
     }
 
+    const metrics = getSheetAnimationMetrics(sheetHeightRef.current);
     Animated.parallel([
       Animated.timing(backdropProgress, {
-        duration: 180,
+        duration: metrics.backdropExitDuration,
         easing: Easing.in(Easing.cubic),
         toValue: 0,
         useNativeDriver: true,
       }),
       Animated.timing(sheetProgress, {
-        duration: 260,
+        duration: metrics.exitDuration,
         easing: Easing.bezier(0.32, 0, 0.67, 0),
         toValue: 0,
         useNativeDriver: true,
@@ -155,6 +177,15 @@ function AnimatedSheetModal({
     return null;
   }
 
+  const handleSheetLayout = (height: number) => {
+    if (Math.abs(sheetHeightRef.current - height) < 1) {
+      return;
+    }
+
+    sheetHeightRef.current = height;
+    setSheetTravel(getSheetAnimationMetrics(height).travel);
+  };
+
   const sheetAnimatedStyle = {
     opacity: sheetProgress.interpolate({
       inputRange: [0, 1],
@@ -164,7 +195,7 @@ function AnimatedSheetModal({
       {
         translateY: sheetProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [84, 0],
+          outputRange: [sheetTravel, 0],
         }),
       },
       {
@@ -186,7 +217,12 @@ function AnimatedSheetModal({
         ) : (
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         )}
-        <Animated.View style={[sheetStyle, sheetAnimatedStyle]}>{children}</Animated.View>
+        <Animated.View
+          onLayout={({ nativeEvent }) => handleSheetLayout(nativeEvent.layout.height)}
+          style={[sheetStyle, sheetAnimatedStyle]}
+        >
+          {children}
+        </Animated.View>
         {overlay}
       </GestureHandlerRootView>
     </Modal>
