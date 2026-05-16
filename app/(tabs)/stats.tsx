@@ -17,6 +17,7 @@ import {
   Easing,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,6 +26,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -59,6 +61,11 @@ import { getRecordMinutesColor } from '@/utils/recordColor';
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
 const deleteActionWidth = 82;
+const modalGestureRootStyle = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});
 
 type EditorTimeSection = 'start' | 'end';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
@@ -85,24 +92,35 @@ function AnimatedSheetModal({
   visible,
 }: AnimatedSheetModalProps) {
   const [isMounted, setIsMounted] = useState(visible);
-  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const backdropProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const onExitCompleteRef = useRef(onExitComplete);
+  const sheetProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
   useEffect(() => {
     onExitCompleteRef.current = onExitComplete;
   }, [onExitComplete]);
 
   useEffect(() => {
-    progress.stopAnimation();
+    backdropProgress.stopAnimation();
+    sheetProgress.stopAnimation();
 
     if (visible) {
       setIsMounted(true);
-      Animated.timing(progress, {
-        duration: 240,
-        easing: Easing.out(Easing.cubic),
-        toValue: 1,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(backdropProgress, {
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.spring(sheetProgress, {
+          damping: 28,
+          mass: 0.85,
+          stiffness: 210,
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+      ]).start();
       return;
     }
 
@@ -110,12 +128,20 @@ function AnimatedSheetModal({
       return;
     }
 
-    Animated.timing(progress, {
-      duration: 190,
-      easing: Easing.in(Easing.cubic),
-      toValue: 0,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
+    Animated.parallel([
+      Animated.timing(backdropProgress, {
+        duration: 180,
+        easing: Easing.in(Easing.cubic),
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetProgress, {
+        duration: 260,
+        easing: Easing.bezier(0.32, 0, 0.67, 0),
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
       if (!finished) {
         return;
       }
@@ -123,22 +149,28 @@ function AnimatedSheetModal({
       setIsMounted(false);
       onExitCompleteRef.current?.();
     });
-  }, [isMounted, progress, visible]);
+  }, [backdropProgress, isMounted, sheetProgress, visible]);
 
   if (!isMounted) {
     return null;
   }
 
   const sheetAnimatedStyle = {
-    opacity: progress.interpolate({
+    opacity: sheetProgress.interpolate({
       inputRange: [0, 1],
-      outputRange: [0.96, 1],
+      outputRange: [0.9, 1],
     }),
     transform: [
       {
-        translateY: progress.interpolate({
+        translateY: sheetProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [36, 0],
+          outputRange: [84, 0],
+        }),
+      },
+      {
+        scale: sheetProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.985, 1],
         }),
       },
     ],
@@ -146,15 +178,17 @@ function AnimatedSheetModal({
 
   return (
     <Modal animationType="none" onRequestClose={onClose} transparent visible>
-      {dimBackdrop ? (
-        <Animated.View style={[backdropStyle, { opacity: progress }]}>
+      <GestureHandlerRootView style={modalGestureRootStyle.root}>
+        {dimBackdrop ? (
+          <Animated.View style={[backdropStyle, { opacity: backdropProgress }]}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+          </Animated.View>
+        ) : (
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        </Animated.View>
-      ) : (
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      )}
-      <Animated.View style={[sheetStyle, sheetAnimatedStyle]}>{children}</Animated.View>
-      {overlay}
+        )}
+        <Animated.View style={[sheetStyle, sheetAnimatedStyle]}>{children}</Animated.View>
+        {overlay}
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -922,8 +956,10 @@ function SwipeRecordRow({
   styles,
   t,
 }: SwipeRecordRowProps) {
+  const swipeableRef = useRef<Swipeable>(null);
   const translateX = useRef(new Animated.Value(0)).current;
   const latestTranslateXRef = useRef(0);
+  const isWeb = Platform.OS === 'web';
 
   const snapTo = useCallback(
     (value: number) => {
@@ -942,7 +978,7 @@ function SwipeRecordRow({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) =>
-          Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+          Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
         onPanResponderMove: (_, gestureState) => {
           const nextValue = Math.max(
             -deleteActionWidth,
@@ -963,68 +999,100 @@ function SwipeRecordRow({
 
   useEffect(() => {
     if (deleteActionHidden) {
+      swipeableRef.current?.close();
       snapTo(0);
     }
   }, [deleteActionHidden, snapTo]);
 
-  return (
-    <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
-      {deleteActionHidden ? null : (
-        <AnimatedPressable
-          accessibilityLabel={t('stats.deleteRecord')}
-          accessibilityRole="button"
-          containerStyle={styles.recordDeleteAction}
-          onPress={() => onDelete(record.id)}
-          pressedScale={0.94}
-          pressedTranslateX={-2}
-          style={styles.recordDeleteActionButton}
-        >
-          <Ionicons color={colors.surface} name="trash-outline" size={21} />
-          <Text style={styles.recordDeleteText}>{t('stats.delete')}</Text>
-        </AnimatedPressable>
-      )}
-      <Animated.View
-        {...panResponder.panHandlers}
+  const renderDeleteAction = () => {
+    if (deleteActionHidden) {
+      return null;
+    }
+
+    return (
+      <AnimatedPressable
+        accessibilityLabel={t('stats.deleteRecord')}
+        accessibilityRole="button"
+        containerStyle={styles.recordDeleteAction}
+        onPress={() => onDelete(record.id)}
+        pressedScale={0.94}
+        pressedTranslateX={-2}
+        style={styles.recordDeleteActionButton}
+      >
+        <Ionicons color={colors.surface} name="trash-outline" size={21} />
+        <Text style={styles.recordDeleteText}>{t('stats.delete')}</Text>
+      </AnimatedPressable>
+    );
+  };
+
+  const renderRecordContent = () => (
+    <>
+      <View
         style={[
-          styles.recordPopupRow,
-          {
-            transform: [{ translateX }],
-          },
+          styles.recordPopupIcon,
+          { backgroundColor: getRecordMinutesColor(record.minutes_since_start) },
         ]}
       >
-        <View
-          style={[
-            styles.recordPopupIcon,
-            { backgroundColor: getRecordMinutesColor(record.minutes_since_start) },
-          ]}
-        >
-          <Ionicons color={colors.surface} name="time-outline" size={22} />
-        </View>
-        <View style={styles.recordPopupCopy}>
-          <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
-          <Text style={styles.recordPopupMeta}>
-            {formatDateTime(record.updated_at, t('stats.noData'))}
-          </Text>
-        </View>
-        <Text
-          style={[
-            styles.recordPopupValue,
-            { color: getRecordMinutesColor(record.minutes_since_start) },
-          ]}
-        >
-          {formatDuration(record.minutes_since_start, recordUnit)}
+        <Ionicons color={colors.surface} name="time-outline" size={22} />
+      </View>
+      <View style={styles.recordPopupCopy}>
+        <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
+        <Text style={styles.recordPopupMeta}>
+          {formatDateTime(record.updated_at, t('stats.noData'))}
         </Text>
-        <AnimatedPressable
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={() => onEdit(record)}
-          pressedScale={0.92}
-          pressedTranslateX={4}
-          style={styles.recordEditButton}
+      </View>
+      <Text
+        style={[
+          styles.recordPopupValue,
+          { color: getRecordMinutesColor(record.minutes_since_start) },
+        ]}
+      >
+        {formatDuration(record.minutes_since_start, recordUnit)}
+      </Text>
+      <AnimatedPressable
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={() => onEdit(record)}
+        pressedScale={0.92}
+        pressedTranslateX={4}
+        style={styles.recordEditButton}
+      >
+        <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={20} />
+      </AnimatedPressable>
+    </>
+  );
+
+  if (isWeb) {
+    return (
+      <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
+        {renderDeleteAction()}
+        <Animated.View
+          {...panResponder.panHandlers}
+          style={[
+            styles.recordPopupRow,
+            {
+              transform: [{ translateX }],
+            },
+          ]}
         >
-          <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={20} />
-        </AnimatedPressable>
-      </Animated.View>
+          {renderRecordContent()}
+        </Animated.View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
+      <Swipeable
+        enabled={!deleteActionHidden}
+        friction={2}
+        overshootRight={false}
+        ref={swipeableRef}
+        renderRightActions={renderDeleteAction}
+        rightThreshold={deleteActionWidth / 2}
+      >
+        <View style={styles.recordPopupRow}>{renderRecordContent()}</View>
+      </Swipeable>
     </View>
   );
 }
