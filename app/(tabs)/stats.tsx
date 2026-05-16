@@ -2,11 +2,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  Easing,
   Modal,
   PanResponder,
   Pressable,
@@ -14,6 +23,8 @@ import {
   StyleSheet,
   Text,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -50,6 +61,99 @@ const deleteActionWidth = 82;
 
 type EditorTimeSection = 'start' | 'end';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
+
+type AnimatedSheetModalProps = {
+  backdropStyle: StyleProp<ViewStyle>;
+  children: ReactNode;
+  dimBackdrop?: boolean;
+  onClose: () => void;
+  onExitComplete?: () => void;
+  sheetStyle: StyleProp<ViewStyle>;
+  visible: boolean;
+};
+
+function AnimatedSheetModal({
+  backdropStyle,
+  children,
+  dimBackdrop = true,
+  onClose,
+  onExitComplete,
+  sheetStyle,
+  visible,
+}: AnimatedSheetModalProps) {
+  const [isMounted, setIsMounted] = useState(visible);
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const onExitCompleteRef = useRef(onExitComplete);
+
+  useEffect(() => {
+    onExitCompleteRef.current = onExitComplete;
+  }, [onExitComplete]);
+
+  useEffect(() => {
+    progress.stopAnimation();
+
+    if (visible) {
+      setIsMounted(true);
+      Animated.timing(progress, {
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        toValue: 1,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    if (!isMounted) {
+      return;
+    }
+
+    Animated.timing(progress, {
+      duration: 190,
+      easing: Easing.in(Easing.cubic),
+      toValue: 0,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) {
+        return;
+      }
+
+      setIsMounted(false);
+      onExitCompleteRef.current?.();
+    });
+  }, [isMounted, progress, visible]);
+
+  if (!isMounted) {
+    return null;
+  }
+
+  const sheetAnimatedStyle = {
+    opacity: progress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.96, 1],
+    }),
+    transform: [
+      {
+        translateY: progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [36, 0],
+        }),
+      },
+    ],
+  };
+
+  return (
+    <Modal animationType="none" onRequestClose={onClose} transparent visible>
+      {dimBackdrop ? (
+        <Animated.View style={[backdropStyle, { opacity: progress }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+      ) : (
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      )}
+      <Animated.View style={[sheetStyle, sheetAnimatedStyle]}>{children}</Animated.View>
+    </Modal>
+  );
+}
 
 function pad2(value: number) {
   return String(value).padStart(2, '0');
@@ -148,6 +252,7 @@ export default function StatsScreen() {
   const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  const [dayRecordsSheetVisible, setDayRecordsSheetVisible] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [recordEditorVisible, setRecordEditorVisible] = useState(false);
   const [draftStartTime, setDraftStartTime] = useState('09:00');
@@ -173,6 +278,7 @@ export default function StatsScreen() {
 
     setMonthDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
     setSelectedDayKey(dayKey);
+    setDayRecordsSheetVisible(true);
   }, [routeSelectedDayKey, selectedAt]);
 
   const weekdays = t('stats.weekdaysShort', { returnObjects: true }) as string[];
@@ -280,20 +386,21 @@ export default function StatsScreen() {
 
   const handleSelectDay = (dayKey: string) => {
     if (selectedDayKey === dayKey) {
-      setSelectedDayKey(null);
+      setDayRecordsSheetVisible(false);
       return;
     }
 
     setSelectedDayKey(dayKey);
+    setDayRecordsSheetVisible(true);
   };
 
   const handleChangeMonth = (offset: number) => {
-    setSelectedDayKey(null);
+    setDayRecordsSheetVisible(false);
     setMonthDate((current) => addMonths(current, offset));
   };
 
   const handleGoToCurrentMonth = () => {
-    setSelectedDayKey(null);
+    setDayRecordsSheetVisible(false);
     setMonthDate(new Date());
   };
 
@@ -323,9 +430,24 @@ export default function StatsScreen() {
 
   const handleCloseRecordEditor = () => {
     setRecordEditorVisible(false);
+  };
+
+  const handleCloseDayRecords = () => {
+    setDayRecordsSheetVisible(false);
+  };
+
+  const handleDayRecordsExitComplete = useCallback(() => {
+    if (recordEditorVisible) {
+      return;
+    }
+
+    setSelectedDayKey(null);
+  }, [recordEditorVisible]);
+
+  const handleRecordEditorExitComplete = useCallback(() => {
     setEditingRecordId(null);
     setExpandedEditorTimeSection(null);
-  };
+  }, []);
 
   const handleSaveRecordEditor = async () => {
     if (!selectedDayKey) {
@@ -347,8 +469,6 @@ export default function StatsScreen() {
     }
 
     setRecordEditorVisible(false);
-    setEditingRecordId(null);
-    setExpandedEditorTimeSection(null);
     await loadData();
   };
 
@@ -555,164 +675,161 @@ export default function StatsScreen() {
           </View>
         </View>
         </ScrollView>
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setSelectedDayKey(null)}
-        transparent
-        visible={selectedDayKey !== null && !recordEditorVisible}
+      <AnimatedSheetModal
+        backdropStyle={styles.modalBackdrop}
+        onClose={handleCloseDayRecords}
+        onExitComplete={handleDayRecordsExitComplete}
+        sheetStyle={styles.dayRecordsSheet}
+        visible={selectedDayKey !== null && dayRecordsSheetVisible}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setSelectedDayKey(null)} />
-        <View style={styles.dayRecordsSheet}>
-          <View style={styles.sheetGrabber} />
-          <View style={styles.sheetHeader}>
-            <View style={styles.sheetTitleGroup}>
-              <View style={styles.editorTitleLine}>
-                <Text style={styles.sheetTitle}>
-                  {selectedDayKey ? formatDayLabel(selectedDayKey) : t('stats.noSelectedDay')}
-                </Text>
-                {selectedDayKey ? (
-                  <Text style={styles.weekdayPill}>{formatWeekdayLabel(selectedDayKey)}</Text>
-                ) : null}
-              </View>
-              <Text style={styles.sheetSubtitle}>
-                {t('stats.dayTotal', {
-                  count: selectedDayRecords.length,
-                  value: formatDuration(selectedDayTotal, recordUnit),
-                })}
-              </Text>
-            </View>
-            <Pressable
-              accessibilityLabel={t('stats.closeRecords')}
-              accessibilityRole="button"
-              onPress={() => setSelectedDayKey(null)}
-              style={styles.sheetCloseButton}
-            >
-              <Ionicons color={colors.textSoft} name="close" size={24} />
-            </Pressable>
-          </View>
-
-          <ScrollView contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
-            {selectedDayRecords.length > 0 ? (
-              selectedDayRecords.map((record) => (
-                <SwipeRecordRow
-                  colors={colors}
-                  key={record.id}
-                  onDelete={handleDeleteRecord}
-                  onEdit={handleOpenEditRecord}
-                  record={record}
-                  recordUnit={recordUnit}
-                  startTimeMinutes={startTimeMinutes}
-                  styles={styles}
-                  t={t}
-                />
-              ))
-            ) : (
-              <View style={styles.emptyRecords}>
-                <Ionicons color={colors.mutedSubtle} name="calendar-clear-outline" size={32} />
-                <Text style={styles.emptyRecordsText}>{t('stats.noRecord')}</Text>
-              </View>
-            )}
-          </ScrollView>
-          {canCreateSelectedDayRecord ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                onPress={handleOpenCreateRecord}
-                style={styles.createRecordButton}
-              >
-                <Ionicons color={colors.surface} name="add" size={28} />
-                <Text style={styles.createRecordText}>{t('stats.newRecord')}</Text>
-              </Pressable>
-              <Text style={styles.createRecordHint}>{t('stats.newRecordHint')}</Text>
-            </>
-          ) : null}
-        </View>
-      </Modal>
-      <Modal
-        animationType="slide"
-        onRequestClose={handleCloseRecordEditor}
-        transparent
-        visible={recordEditorVisible}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={handleCloseRecordEditor} />
-        <View style={styles.recordEditorSheet}>
-          <View style={styles.sheetGrabber} />
-          <View style={styles.editorSheetHeader}>
-            <View>
+        <View style={styles.sheetGrabber} />
+        <View style={styles.sheetHeader}>
+          <View style={styles.sheetTitleGroup}>
+            <View style={styles.editorTitleLine}>
               <Text style={styles.sheetTitle}>
-                {editingRecordId === null ? t('stats.newRecord') : t('stats.editRecord')}
-              </Text>
-              <Text style={styles.sheetSubtitle}>
                 {selectedDayKey ? formatDayLabel(selectedDayKey) : t('stats.noSelectedDay')}
               </Text>
+              {selectedDayKey ? (
+                <Text style={styles.weekdayPill}>{formatWeekdayLabel(selectedDayKey)}</Text>
+              ) : null}
             </View>
-            <Pressable
-              accessibilityLabel={t('stats.closeRecords')}
-              accessibilityRole="button"
-              onPress={handleCloseRecordEditor}
-              style={styles.sheetCloseButton}
-            >
-              <Ionicons color={colors.textSoft} name="close" size={24} />
-            </Pressable>
+            <Text style={styles.sheetSubtitle}>
+              {t('stats.dayTotal', {
+                count: selectedDayRecords.length,
+                value: formatDuration(selectedDayTotal, recordUnit),
+              })}
+            </Text>
           </View>
+          <Pressable
+            accessibilityLabel={t('stats.closeRecords')}
+            accessibilityRole="button"
+            onPress={handleCloseDayRecords}
+            style={styles.sheetCloseButton}
+          >
+            <Ionicons color={colors.textSoft} name="close" size={24} />
+          </Pressable>
+        </View>
 
-          <View style={styles.editorForm}>
-            {renderEditorTimePicker(
-              'start',
-              t('stats.startTime'),
-              draftStartTime,
-              'time-outline',
-              colors.accent,
-              colors.primarySoft,
-              (value) => setDraftStartTime(cleanTimeInput(value)),
-            )}
-            {renderEditorTimePicker(
-              'end',
-              t('stats.endTime'),
-              draftEndTime,
-              'time',
-              colors.info,
-              colors.infoSoft,
-              (value) => setDraftEndTime(cleanTimeInput(value)),
-            )}
-            <View style={styles.editorInputRow}>
-              <View style={styles.editorInputMain}>
-                <View style={[styles.editorInputIcon, { backgroundColor: '#EAF4FF' }]}>
-                  <Ionicons color={colors.highlight} name="hourglass-outline" size={22} />
-                </View>
-                <Text style={styles.editorInputLabel}>{t('stats.duration')}</Text>
+        <ScrollView contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
+          {selectedDayRecords.length > 0 ? (
+            selectedDayRecords.map((record) => (
+              <SwipeRecordRow
+                colors={colors}
+                key={record.id}
+                onDelete={handleDeleteRecord}
+                onEdit={handleOpenEditRecord}
+                record={record}
+                recordUnit={recordUnit}
+                startTimeMinutes={startTimeMinutes}
+                styles={styles}
+                t={t}
+              />
+            ))
+          ) : (
+            <View style={styles.emptyRecords}>
+              <Ionicons color={colors.mutedSubtle} name="calendar-clear-outline" size={32} />
+              <Text style={styles.emptyRecordsText}>{t('stats.noRecord')}</Text>
+            </View>
+          )}
+        </ScrollView>
+        {canCreateSelectedDayRecord ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleOpenCreateRecord}
+              style={styles.createRecordButton}
+            >
+              <Ionicons color={colors.surface} name="add" size={28} />
+              <Text style={styles.createRecordText}>{t('stats.newRecord')}</Text>
+            </Pressable>
+            <Text style={styles.createRecordHint}>{t('stats.newRecordHint')}</Text>
+          </>
+        ) : null}
+      </AnimatedSheetModal>
+      <AnimatedSheetModal
+        backdropStyle={styles.modalBackdrop}
+        dimBackdrop={false}
+        onClose={handleCloseRecordEditor}
+        onExitComplete={handleRecordEditorExitComplete}
+        sheetStyle={styles.recordEditorSheet}
+        visible={recordEditorVisible}
+      >
+        <View style={styles.sheetGrabber} />
+        <View style={styles.editorSheetHeader}>
+          <View>
+            <Text style={styles.sheetTitle}>
+              {editingRecordId === null ? t('stats.newRecord') : t('stats.editRecord')}
+            </Text>
+            <Text style={styles.sheetSubtitle}>
+              {selectedDayKey ? formatDayLabel(selectedDayKey) : t('stats.noSelectedDay')}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel={t('stats.closeRecords')}
+            accessibilityRole="button"
+            onPress={handleCloseRecordEditor}
+            style={styles.sheetCloseButton}
+          >
+            <Ionicons color={colors.textSoft} name="close" size={24} />
+          </Pressable>
+        </View>
+
+        <View style={styles.editorForm}>
+          {renderEditorTimePicker(
+            'start',
+            t('stats.startTime'),
+            draftStartTime,
+            'time-outline',
+            colors.accent,
+            colors.primarySoft,
+            (value) => setDraftStartTime(cleanTimeInput(value)),
+          )}
+          {renderEditorTimePicker(
+            'end',
+            t('stats.endTime'),
+            draftEndTime,
+            'time',
+            colors.info,
+            colors.infoSoft,
+            (value) => setDraftEndTime(cleanTimeInput(value)),
+          )}
+          <View style={styles.editorInputRow}>
+            <View style={styles.editorInputMain}>
+              <View style={[styles.editorInputIcon, { backgroundColor: '#EAF4FF' }]}>
+                <Ionicons color={colors.highlight} name="hourglass-outline" size={22} />
               </View>
-              <Text style={styles.editorDurationValue}>
-                {(() => {
-                  const startMinutes = parseTimeInput(draftStartTime);
-                  const endMinutes = parseTimeInput(draftEndTime);
-
-                  return startMinutes !== null && endMinutes !== null && endMinutes > startMinutes
-                    ? formatDuration(endMinutes - startMinutes, recordUnit)
-                    : t('stats.autoCalculate');
-                })()}
-              </Text>
+              <Text style={styles.editorInputLabel}>{t('stats.duration')}</Text>
             </View>
-          </View>
+            <Text style={styles.editorDurationValue}>
+              {(() => {
+                const startMinutes = parseTimeInput(draftStartTime);
+                const endMinutes = parseTimeInput(draftEndTime);
 
-          <View style={styles.editorSheetActions}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleCloseRecordEditor}
-              style={styles.cancelRecordButton}
-            >
-              <Text style={styles.cancelRecordText}>{t('stats.cancel')}</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleSaveRecordEditor}
-              style={styles.saveRecordButton}
-            >
-              <Text style={styles.saveRecordText}>{t('stats.saveRecord')}</Text>
-            </Pressable>
+                return startMinutes !== null && endMinutes !== null && endMinutes > startMinutes
+                  ? formatDuration(endMinutes - startMinutes, recordUnit)
+                  : t('stats.autoCalculate');
+              })()}
+            </Text>
           </View>
         </View>
-      </Modal>
+
+        <View style={styles.editorSheetActions}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={handleCloseRecordEditor}
+            style={styles.cancelRecordButton}
+          >
+            <Text style={styles.cancelRecordText}>{t('stats.cancel')}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={handleSaveRecordEditor}
+            style={styles.saveRecordButton}
+          >
+            <Text style={styles.saveRecordText}>{t('stats.saveRecord')}</Text>
+          </Pressable>
+        </View>
+      </AnimatedSheetModal>
     </SafeAreaView>
   );
 }
