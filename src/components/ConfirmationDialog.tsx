@@ -1,8 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
-import { type ComponentProps, useMemo } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { OverlayPortal } from '@/components/OverlayPortal';
 import { radius, spacing, useAppTheme } from '@/theme';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
@@ -22,6 +31,10 @@ type ConfirmationDialogProps = {
   visible: boolean;
 };
 
+type ConfirmationDialogContent = Omit<ConfirmationDialogProps, 'contained' | 'visible'> & {
+  variant: ConfirmationDialogVariant;
+};
+
 export function ConfirmationDialog({
   cancelLabel,
   confirmLabel,
@@ -37,34 +50,138 @@ export function ConfirmationDialog({
   const theme = useAppTheme();
   const { colors } = theme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
+  const currentContent: ConfirmationDialogContent = {
+    cancelLabel,
+    confirmLabel,
+    iconName,
+    message,
+    onCancel,
+    onConfirm,
+    title,
+    variant,
+  };
+  const lastVisibleContentRef = useRef(currentContent);
+
+  if (visible) {
+    lastVisibleContentRef.current = currentContent;
+  }
+
+  const displayContent = visible ? currentContent : lastVisibleContentRef.current;
+  const {
+    cancelLabel: displayCancelLabel,
+    confirmLabel: displayConfirmLabel,
+    iconName: displayIconName,
+    message: displayMessage,
+    onCancel: displayOnCancel,
+    onConfirm: displayOnConfirm,
+    title: displayTitle,
+    variant: displayVariant,
+  } = displayContent;
   const accentColor =
-    variant === 'danger' ? colors.danger : variant === 'success' ? colors.info : colors.primary;
+    displayVariant === 'danger'
+      ? colors.danger
+      : displayVariant === 'success'
+        ? colors.info
+        : colors.primary;
   const iconBackground =
-    variant === 'danger'
+    displayVariant === 'danger'
       ? colors.dangerSoft
-      : variant === 'success'
+      : displayVariant === 'success'
         ? colors.infoSoft
         : colors.primarySoft;
   const resolvedIconName =
-    iconName ??
-    (variant === 'danger'
+    displayIconName ??
+    (displayVariant === 'danger'
       ? 'trash-outline'
-      : variant === 'success'
+      : displayVariant === 'success'
         ? 'checkmark-circle-outline'
         : 'cloud-upload-outline');
-  const handleDismiss = onCancel ?? onConfirm;
+  const [isMounted, setIsMounted] = useState(visible);
+  const progress = useSharedValue(visible ? 1 : 0);
+  const handleDismiss = useCallback(() => {
+    (displayOnCancel ?? displayOnConfirm)();
+  }, [displayOnCancel, displayOnConfirm]);
+
+  const handleExitFinished = useCallback(() => {
+    setIsMounted(false);
+  }, []);
+
+  useEffect(() => {
+    cancelAnimation(progress);
+
+    if (visible) {
+      setIsMounted(true);
+      progress.value = withTiming(1, {
+        duration: 170,
+        easing: Easing.out(Easing.cubic),
+      });
+      return;
+    }
+
+    if (!isMounted) {
+      return;
+    }
+
+    progress.value = withTiming(
+      0,
+      {
+        duration: 140,
+        easing: Easing.in(Easing.cubic),
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(handleExitFinished)();
+        }
+      },
+    );
+  }, [handleExitFinished, isMounted, progress, visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleDismiss();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [handleDismiss, visible]);
+
+  const rootAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+  }));
+
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: (1 - progress.value) * 8,
+      },
+      {
+        scale: 0.97 + progress.value * 0.03,
+      },
+    ],
+  }));
 
   const dialog = (
-    <View style={styles.root}>
+    <Animated.View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[
+        styles.root,
+        contained ? styles.containedRoot : styles.screenRoot,
+        rootAnimatedStyle,
+      ]}
+    >
       <Pressable accessibilityRole="button" onPress={handleDismiss} style={StyleSheet.absoluteFill} />
-      <View style={styles.card}>
+      <Animated.View style={[styles.card, cardAnimatedStyle]}>
         <View style={[styles.iconHalo, { backgroundColor: iconBackground }]}>
           <Ionicons color={accentColor} name={resolvedIconName} size={34} />
         </View>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.message}>{message}</Text>
+        <Text style={styles.title}>{displayTitle}</Text>
+        <Text style={styles.message}>{displayMessage}</Text>
         <View style={styles.actions}>
-          {cancelLabel ? (
+          {displayCancelLabel ? (
             <AnimatedPressable
               accessibilityRole="button"
               containerStyle={styles.cancelButtonContainer}
@@ -73,16 +190,16 @@ export function ConfirmationDialog({
               pressedTranslateY={1}
               style={styles.cancelButton}
             >
-              <Text style={styles.cancelText}>{cancelLabel}</Text>
+              <Text style={styles.cancelText}>{displayCancelLabel}</Text>
             </AnimatedPressable>
           ) : null}
           <AnimatedPressable
             accessibilityRole="button"
             containerStyle={[
               styles.confirmButtonContainer,
-              !cancelLabel && styles.confirmButtonSingleContainer,
+              !displayCancelLabel && styles.confirmButtonSingleContainer,
             ]}
-            onPress={onConfirm}
+            onPress={displayOnConfirm}
             pressedScale={0.96}
             pressedTranslateY={1}
             style={({ pressed }) => [
@@ -91,26 +208,18 @@ export function ConfirmationDialog({
               pressed && styles.confirmButtonPressed,
             ]}
           >
-            <Text style={styles.confirmText}>{confirmLabel}</Text>
+            <Text style={styles.confirmText}>{displayConfirmLabel}</Text>
           </AnimatedPressable>
         </View>
-      </View>
-    </View>
+      </Animated.View>
+    </Animated.View>
   );
 
-  if (!visible) {
+  if (!isMounted) {
     return null;
   }
 
-  if (contained) {
-    return dialog;
-  }
-
-  return (
-    <Modal animationType="fade" onRequestClose={handleDismiss} transparent visible={visible}>
-      {dialog}
-    </Modal>
-  );
+  return <OverlayPortal>{dialog}</OverlayPortal>;
 }
 
 const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
@@ -121,10 +230,16 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       ...StyleSheet.absoluteFillObject,
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 999,
-      elevation: 999,
       paddingHorizontal: spacing.xl,
       backgroundColor: isDark ? 'rgba(0, 0, 0, 0.62)' : 'rgba(9, 14, 20, 0.56)',
+    },
+    screenRoot: {
+      zIndex: 120,
+      elevation: 120,
+    },
+    containedRoot: {
+      zIndex: 999,
+      elevation: 999,
     },
     card: {
       width: '100%',

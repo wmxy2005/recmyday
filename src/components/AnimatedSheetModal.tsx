@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Modal,
+  BackHandler,
   Pressable,
   StyleSheet,
   type StyleProp,
@@ -16,10 +16,14 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { OverlayPortal } from '@/components/OverlayPortal';
+
 const sheetFallbackHeight = 360;
 const modalGestureRootStyle = StyleSheet.create({
   root: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 80,
+    elevation: 80,
   },
 });
 
@@ -78,6 +82,19 @@ export function AnimatedSheetModal({
   useEffect(() => {
     onExitCompleteRef.current = onExitComplete;
   }, [onExitComplete]);
+
+  useEffect(() => {
+    if (!isMounted) {
+      return undefined;
+    }
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [isMounted, onClose]);
 
   const handleExitFinished = useCallback(() => {
     setIsMounted(false);
@@ -159,7 +176,7 @@ export function AnimatedSheetModal({
   };
 
   return (
-    <Modal animationType="none" onRequestClose={onClose} transparent visible>
+    <OverlayPortal>
       <GestureHandlerRootView style={modalGestureRootStyle.root}>
         {dimBackdrop ? (
           <Animated.View style={[backdropStyle, backdropAnimatedStyle]}>
@@ -176,6 +193,6 @@ export function AnimatedSheetModal({
         </Animated.View>
         {overlay}
       </GestureHandlerRootView>
-    </Modal>
+    </OverlayPortal>
   );
 }

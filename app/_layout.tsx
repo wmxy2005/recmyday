@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { OverlayPortalProvider } from '@/components/OverlayPortal';
 import { databaseName, migrateDatabase } from '@/data/database';
 import '@/i18n';
 import { useAppTheme } from '@/theme';
@@ -27,16 +28,18 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider>
-        <Suspense fallback={<LoadingFallback />}>
-          <SQLiteProvider databaseName={databaseName} onInit={migrateDatabase} useSuspense>
-            <StatusBar style={isDark ? 'light' : 'dark'} />
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-            </Stack>
-          </SQLiteProvider>
-        </Suspense>
-      </SafeAreaProvider>
+      <OverlayPortalProvider>
+        <SafeAreaProvider>
+          <Suspense fallback={<LoadingFallback />}>
+            <SQLiteProvider databaseName={databaseName} onInit={migrateDatabase} useSuspense>
+              <StatusBar style={isDark ? 'light' : 'dark'} />
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(tabs)" />
+              </Stack>
+            </SQLiteProvider>
+          </Suspense>
+        </SafeAreaProvider>
+      </OverlayPortalProvider>
     </GestureHandlerRootView>
   );
 }

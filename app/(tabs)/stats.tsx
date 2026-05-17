@@ -15,11 +15,17 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import {
+  Pressable as GesturePressable,
+  ScrollView as GestureScrollView,
+} from 'react-native-gesture-handler';
+import ReanimatedSwipeable, {
+  type SwipeableMethods,
+} from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useTranslation } from 'react-i18next';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
@@ -108,6 +114,7 @@ export default function StatsScreen() {
   }>();
   const theme = useAppTheme();
   const { colors } = theme;
+  const { height: windowHeight } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
   const [monthDate, setMonthDate] = useState(() => new Date());
@@ -234,6 +241,7 @@ export default function StatsScreen() {
   );
   const canCreateSelectedDayRecord =
     selectedDayKey !== null && (!separateRecordEnabled || selectedDayRecords.length === 0);
+  const dayRecordsListMaxHeight = Math.max(120, Math.round(windowHeight * 0.72 - 230));
   const chartRecords = useMemo(() => {
     const latestRecords = records.slice(-7);
     const maxMinutes = Math.max(...latestRecords.map((record) => record.minutes_since_start), 1);
@@ -615,7 +623,13 @@ export default function StatsScreen() {
           </AnimatedPressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
+        <GestureScrollView
+          contentContainerStyle={styles.sheetList}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          style={[styles.sheetScroll, { maxHeight: dayRecordsListMaxHeight }]}
+        >
           {selectedDayRecords.length > 0 ? (
             selectedDayRecords.map((record) => (
               <SwipeRecordRow
@@ -637,7 +651,7 @@ export default function StatsScreen() {
               <Text style={styles.emptyRecordsText}>{t('stats.noRecord')}</Text>
             </View>
           )}
-        </ScrollView>
+        </GestureScrollView>
         {canCreateSelectedDayRecord ? (
           <>
             <AnimatedPressable
@@ -781,92 +795,34 @@ function SwipeRecordRow({
   styles,
   t,
 }: SwipeRecordRowProps) {
-  const translateX = useSharedValue(0);
-  const startTranslateX = useSharedValue(0);
-
-  const snapConfig = useMemo(
-    () => ({
-      damping: 18,
-      mass: 0.45,
-      stiffness: 260,
-    }),
-    [],
-  );
-
-  const snapTo = useCallback(
-    (value: number) => {
-      translateX.value = withSpring(value, snapConfig);
-    },
-    [snapConfig, translateX],
-  );
-
-  const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(!deleteActionHidden)
-        .activeOffsetX([-8, 8])
-        .failOffsetY([-18, 18])
-        .onBegin(() => {
-          startTranslateX.value = translateX.value;
-        })
-        .onUpdate((event) => {
-          const nextValue = Math.max(
-            -deleteActionWidth,
-            Math.min(0, startTranslateX.value + event.translationX),
-          );
-          translateX.value = nextValue;
-        })
-        .onEnd((event) => {
-          const nextValue = startTranslateX.value + event.translationX;
-          const isFastLeftSwipe = event.velocityX < -350;
-          const isFastRightSwipe = event.velocityX > 350;
-          const shouldOpen =
-            !isFastRightSwipe && (isFastLeftSwipe || nextValue < -deleteActionWidth / 2);
-
-          translateX.value = withSpring(shouldOpen ? -deleteActionWidth : 0, snapConfig);
-        })
-        .onFinalize(() => {
-          if (translateX.value > 0 || translateX.value < -deleteActionWidth) {
-            translateX.value = withSpring(
-              Math.max(-deleteActionWidth, Math.min(0, translateX.value)),
-              snapConfig,
-            );
-          }
-        }),
-    [deleteActionHidden, snapConfig, startTranslateX, translateX],
-  );
-
-  const animatedRecordStyle = useAnimatedStyle(
-    () => ({
-      transform: [{ translateX: translateX.value }],
-    }),
-    [translateX],
-  );
-
-  useEffect(() => {
-    if (deleteActionHidden) {
-      snapTo(0);
-    }
-  }, [deleteActionHidden, snapTo]);
-
-  const renderDeleteAction = () => {
+  const renderDeleteAction = (
+    _progress: unknown,
+    _translation: unknown,
+    swipeable: SwipeableMethods,
+  ) => {
     if (deleteActionHidden) {
       return null;
     }
 
     return (
-      <AnimatedPressable
-        accessibilityLabel={t('stats.deleteRecord')}
-        accessibilityRole="button"
-        containerStyle={styles.recordDeleteAction}
-        onPress={() => onDelete(record.id)}
-        pressedScale={0.94}
-        pressedTranslateX={-2}
-        style={styles.recordDeleteActionButton}
-      >
-        <Ionicons color={colors.surface} name="trash-outline" size={21} />
-        <Text style={styles.recordDeleteText}>{t('stats.delete')}</Text>
-      </AnimatedPressable>
+      <View style={styles.recordDeleteAction}>
+        <GesturePressable
+          accessibilityLabel={t('stats.deleteRecord')}
+          accessibilityRole="button"
+          cancelable={false}
+          onPress={() => {
+            swipeable.reset();
+            onDelete(record.id);
+          }}
+          style={({ pressed }) => [
+            styles.recordDeleteActionButton,
+            pressed && styles.recordDeleteActionButtonPressed,
+          ]}
+        >
+          <Ionicons color={colors.surface} name="trash-outline" size={21} />
+          <Text style={styles.recordDeleteText}>{t('stats.delete')}</Text>
+        </GesturePressable>
+      </View>
     );
   };
 
@@ -909,19 +865,21 @@ function SwipeRecordRow({
 
   return (
     <View style={styles.swipeRecordShadow}>
-      <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
-        {renderDeleteAction()}
-        <GestureDetector gesture={panGesture}>
-          <Animated.View
-            style={[
-              styles.recordPopupRow,
-              animatedRecordStyle,
-            ]}
-          >
-            {renderRecordContent()}
-          </Animated.View>
-        </GestureDetector>
-      </View>
+      <ReanimatedSwipeable
+        containerStyle={[
+          styles.swipeRecordShell,
+          deleteActionHidden && styles.swipeRecordShellHidden,
+        ]}
+        dragOffsetFromLeftEdge={10}
+        dragOffsetFromRightEdge={10}
+        enabled={!deleteActionHidden}
+        friction={1.15}
+        overshootRight={false}
+        renderRightActions={renderDeleteAction}
+        rightThreshold={deleteActionWidth / 2}
+      >
+        <View style={styles.recordPopupRow}>{renderRecordContent()}</View>
+      </ReanimatedSwipeable>
     </View>
   );
 }
@@ -1190,6 +1148,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: colors.surfaceAlt,
     flexShrink: 0,
   },
+  sheetScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 0,
+  },
   sheetList: {
     gap: spacing.sm,
     paddingBottom: 0,
@@ -1215,18 +1178,23 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: colors.surfaceElevated,
   },
   recordDeleteAction: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
     width: deleteActionWidth,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   recordDeleteActionButton: {
-    flex: 1,
+    width: 62,
+    height: 62,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
     backgroundColor: colors.danger,
+  },
+  recordDeleteActionButtonPressed: {
+    opacity: 0.86,
+    transform: [{ translateX: -2 }, { scale: 0.94 }],
   },
   recordDeleteText: {
     color: colors.surface,
