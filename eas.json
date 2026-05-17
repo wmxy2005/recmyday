@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 18.11.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -11,7 +11,14 @@
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "credentialsSource": "local",
+        "credentials": {
+          "keystorePath": "credentials/android/keystore.jks",
+          "keystorePassword": "597ebeb4d1ad89d3afea02f192dbdb14",
+          "keyAlias": "cbb455c71dfb76840e68a14dd9c8b5e7",
+          "keyPassword": "95646c4d775c70f01e1fbdaccdde8a10"
+        }
       }
     },
     "production": {
