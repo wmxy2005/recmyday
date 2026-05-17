@@ -6,7 +6,7 @@ export default {
   },
   home: {
     title: 'Rec My Day',
-    startTime: '🚀开始时间 {{time}}',
+    startTime: '开始时间 {{time}}',
     today: '今天',
     dayRecordTitle: '{{day}}的时间记录',
     notRecorded: '尚未记录',
@@ -112,7 +112,8 @@ export default {
     monthTitle: '{{year}}年{{month}}月',
     dayLabel: '{{month}}月{{day}}日',
     durationMinutes: '{{value}}分',
-    durationHoursMinutes: '{{hours}}小时{{minutes}}分',
+    durationDecimalHours: '{{value}}时',
+    durationHoursMinutes: '{{hours}}时{{minutes}}分',
     durationHoursOnly: '{{hours}}小时',
     minutesShortUnit: '分',
     minutesUnit: '分',

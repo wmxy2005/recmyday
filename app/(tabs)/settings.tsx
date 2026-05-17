@@ -4,7 +4,7 @@ import { File, Paths } from 'expo-file-system';
 import { useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
-import { type ComponentProps, useCallback, useMemo, useState } from 'react';
+import { type ComponentProps, useCallback, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -210,11 +210,11 @@ export default function SettingsScreen() {
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [recentRecordLimit, setRecentRecordLimit] = useState('5');
   const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingSection | null>(null);
   const [pendingImportRecords, setPendingImportRecords] = useState<ImportDayRecord[] | null>(null);
   const [promptDialog, setPromptDialog] = useState<PromptDialog | null>(null);
+  const startMinutesSaveIdRef = useRef(0);
 
   const loadSettings = useCallback(async () => {
     const [startMinutes, unit, limit, separateEnabled] = await Promise.all([
@@ -236,11 +236,11 @@ export default function SettingsScreen() {
     }, [loadSettings]),
   );
 
-  const handleSave = async () => {
+  const handleStartMinutesChange = async (minutes: number) => {
     if (
-      !Number.isInteger(pendingStartMinutes) ||
-      pendingStartMinutes < 0 ||
-      pendingStartMinutes > 23 * 60 + 59
+      !Number.isInteger(minutes) ||
+      minutes < 0 ||
+      minutes > 23 * 60 + 59
     ) {
       setPromptDialog({
         iconName: 'alert-circle-outline',
@@ -251,7 +251,28 @@ export default function SettingsScreen() {
       return;
     }
 
-    const parsedRecentRecordLimit = Number(recentRecordLimit);
+    setPendingStartMinutes(minutes);
+    const saveId = startMinutesSaveIdRef.current + 1;
+    startMinutesSaveIdRef.current = saveId;
+    const nextMinutes = await setStartTimeMinutes(db, minutes);
+
+    if (startMinutesSaveIdRef.current === saveId) {
+      setPendingStartMinutes(nextMinutes);
+    }
+  };
+
+  const handleRecordUnitChange = async (unit: RecordUnit) => {
+    setRecordUnit(unit);
+    await saveRecordUnit(db, unit);
+  };
+
+  const handleSeparateRecordChange = async (enabled: boolean) => {
+    setSeparateRecordEnabled(enabled);
+    await saveSeparateRecordEnabled(db, enabled);
+  };
+
+  const handleRecentRecordLimitChange = async (limit: string) => {
+    const parsedRecentRecordLimit = Number(limit);
 
     if (!Number.isInteger(parsedRecentRecordLimit) || parsedRecentRecordLimit < 1) {
       setPromptDialog({
@@ -263,18 +284,10 @@ export default function SettingsScreen() {
       return;
     }
 
-    setIsSaving(true);
-    const [nextMinutes, , nextRecentRecordLimit] = await Promise.all([
-      setStartTimeMinutes(db, pendingStartMinutes),
-      saveRecordUnit(db, recordUnit),
-      saveRecentRecordLimit(db, parsedRecentRecordLimit),
-      saveSeparateRecordEnabled(db, separateRecordEnabled),
-    ]);
+    setRecentRecordLimit(limit);
+    const nextRecentRecordLimit = await saveRecentRecordLimit(db, parsedRecentRecordLimit);
 
-    setPendingStartMinutes(nextMinutes);
     setRecentRecordLimit(String(nextRecentRecordLimit));
-    setExpandedSection(null);
-    setIsSaving(false);
   };
 
   const handleExport = async () => {
@@ -524,7 +537,9 @@ export default function SettingsScreen() {
                   </Text>
                   <TimeWheelPicker
                     accentColor={colors.primary}
-                    onChangeMinutes={setPendingStartMinutes}
+                    onChangeMinutes={(minutes) => {
+                      void handleStartMinutesChange(minutes);
+                    }}
                     valueMinutes={pendingStartMinutes}
                   />
                   <View style={styles.tipRow}>
@@ -598,7 +613,9 @@ export default function SettingsScreen() {
                         accessibilityRole="radio"
                         accessibilityState={{ checked: isActive }}
                         key={String(item.value)}
-                        onPress={() => setSeparateRecordEnabled(item.value)}
+                        onPress={() => {
+                          void handleSeparateRecordChange(item.value);
+                        }}
                         pressedScale={0.985}
                         style={[styles.choiceRow, isActive && styles.choiceRowSeparateActive]}
                       >
@@ -678,7 +695,9 @@ export default function SettingsScreen() {
                         accessibilityRole="radio"
                         accessibilityState={{ checked: isActive }}
                         key={item.value}
-                        onPress={() => setRecordUnit(item.value)}
+                        onPress={() => {
+                          void handleRecordUnitChange(item.value);
+                        }}
                         pressedScale={0.985}
                         style={[styles.choiceRow, isActive && styles.choiceRowUnitActive]}
                       >
@@ -754,7 +773,9 @@ export default function SettingsScreen() {
                         accessibilityRole="radio"
                         accessibilityState={{ checked: isActive }}
                         key={option}
-                        onPress={() => setRecentRecordLimit(String(option))}
+                        onPress={() => {
+                          void handleRecentRecordLimitChange(String(option));
+                        }}
                         pressedScale={0.985}
                         style={[styles.limitRow, isActive && styles.limitRowActive]}
                       >
@@ -779,24 +800,6 @@ export default function SettingsScreen() {
               ) : null}
             </View>
           </View>
-
-          <AnimatedPressable
-            accessibilityRole="button"
-            disabled={isSaving}
-            onPress={handleSave}
-            pressedScale={0.96}
-            pressedTranslateY={1}
-            style={({ pressed }) => [
-              styles.saveButton,
-              pressed && styles.saveButtonPressed,
-              isSaving && styles.saveButtonDisabled,
-            ]}
-          >
-            <Ionicons color={colors.surface} name="save-outline" size={20} />
-            <Text style={styles.saveText}>
-              {isSaving ? t('settings.saving') : t('settings.save')}
-            </Text>
-          </AnimatedPressable>
 
           <Text style={styles.subtitle}>
             {t('settings.currentStartTime', { time: formatTimeFromMinutes(pendingStartMinutes) })}
@@ -1055,27 +1058,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       flex: 1,
       fontSize: 13,
       fontWeight: '800',
-    },
-    saveButton: {
-      height: 54,
-      borderRadius: 18,
-      backgroundColor: colors.primary,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.sm,
-      ...shadow,
-    },
-    saveButtonPressed: {
-      backgroundColor: colors.primaryDark,
-    },
-    saveButtonDisabled: {
-      opacity: 0.7,
-    },
-    saveText: {
-      color: colors.surface,
-      fontSize: 15,
-      fontWeight: '900',
     },
   });
 };

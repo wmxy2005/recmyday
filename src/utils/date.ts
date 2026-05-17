@@ -71,11 +71,23 @@ export function formatTimeFromMinutes(totalMinutes: number) {
   return `${pad2(Math.floor(normalized / 60))}:${pad2(normalized % 60)}`;
 }
 
+function formatDecimalHours(totalMinutes: number) {
+  const roundedHours = Math.round((totalMinutes / 60) * 10) / 10;
+
+  return String(roundedHours);
+}
+
 export function formatDuration(totalMinutes: number, unit: RecordUnit = 'minutes') {
   if (unit === 'minutes') {
     return i18n.t('date.durationMinutes', { value: totalMinutes });
   }
 
+  return i18n.t('date.durationDecimalHours', {
+    value: formatDecimalHours(totalMinutes),
+  });
+}
+
+export function formatDetailedDuration(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 

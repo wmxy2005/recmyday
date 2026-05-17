@@ -113,6 +113,7 @@ export default {
     monthTitle: '{{month}}/{{year}}',
     dayLabel: '{{month}}/{{day}}',
     durationMinutes: '{{value}} min',
+    durationDecimalHours: '{{value}}h',
     durationHoursMinutes: '{{hours}}h {{minutes}}m',
     durationHoursOnly: '{{hours}}h',
     minutesShortUnit: 'min',

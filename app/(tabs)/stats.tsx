@@ -55,6 +55,7 @@ import {
   addMonths,
   formatDayLabel,
   formatDayKey,
+  formatDetailedDuration,
   formatDuration,
   formatMonthTitle,
   formatWeekdayLabel,
@@ -239,9 +240,7 @@ function formatDateTime(value: string | undefined, emptyLabel: string) {
     return emptyLabel;
   }
 
-  return new Date(`${value.replace(' ', 'T')}Z`).toLocaleString([], {
-    month: 'numeric',
-    day: 'numeric',
+  return new Date(`${value.replace(' ', 'T')}Z`).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -927,7 +926,7 @@ export default function StatsScreen() {
                 const endMinutes = parseTimeInput(draftEndTime);
 
                 return startMinutes !== null && endMinutes !== null && endMinutes > startMinutes
-                  ? formatDuration(endMinutes - startMinutes, recordUnit)
+                  ? formatDetailedDuration(endMinutes - startMinutes)
                   : t('stats.autoCalculate');
               })()}
             </Text>
@@ -1022,6 +1021,11 @@ function SwipeRecordRow({
           isHorizontalSwipe(gestureState.dx, gestureState.dy),
         onMoveShouldSetPanResponder: (_, gestureState) =>
           isHorizontalSwipe(gestureState.dx, gestureState.dy),
+        onPanResponderGrant: () => {
+          translateX.stopAnimation((value) => {
+            latestTranslateXRef.current = value;
+          });
+        },
         onPanResponderMove: (_, gestureState) => {
           const nextValue = Math.max(
             -deleteActionWidth,
@@ -1030,9 +1034,15 @@ function SwipeRecordRow({
           translateX.setValue(nextValue);
         },
         onPanResponderRelease: (_, gestureState) => {
-          const shouldOpen = latestTranslateXRef.current + gestureState.dx < -deleteActionWidth / 2;
+          const nextValue = latestTranslateXRef.current + gestureState.dx;
+          const isFastLeftSwipe = gestureState.vx < -0.35;
+          const isFastRightSwipe = gestureState.vx > 0.35;
+          const shouldOpen =
+            !isFastRightSwipe && (isFastLeftSwipe || nextValue < -deleteActionWidth / 2);
+
           snapTo(shouldOpen ? -deleteActionWidth : 0);
         },
+        onPanResponderTerminationRequest: () => false,
         onPanResponderTerminate: () => {
           snapTo(latestTranslateXRef.current < -deleteActionWidth / 2 ? -deleteActionWidth : 0);
         },
@@ -1106,19 +1116,21 @@ function SwipeRecordRow({
   );
 
   return (
-    <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
-      {renderDeleteAction()}
-      <RNAnimated.View
-        {...panResponder.panHandlers}
-        style={[
-          styles.recordPopupRow,
-          {
-            transform: [{ translateX }],
-          },
-        ]}
-      >
-        {renderRecordContent()}
-      </RNAnimated.View>
+    <View style={styles.swipeRecordShadow}>
+      <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
+        {renderDeleteAction()}
+        <RNAnimated.View
+          {...panResponder.panHandlers}
+          style={[
+            styles.recordPopupRow,
+            {
+              transform: [{ translateX }],
+            },
+          ]}
+        >
+          {renderRecordContent()}
+        </RNAnimated.View>
+      </View>
     </View>
   );
 }
@@ -1391,14 +1403,25 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.sm,
     paddingBottom: 0,
   },
+  swipeRecordShadow: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
   swipeRecordShell: {
     minHeight: 78,
     borderRadius: radius.lg,
     overflow: 'hidden',
     backgroundColor: colors.danger,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
   },
   swipeRecordShellHidden: {
-    backgroundColor: 'transparent',
+    backgroundColor: colors.surfaceElevated,
   },
   recordDeleteAction: {
     position: 'absolute',
@@ -1426,10 +1449,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
+    borderRadius: radius.lg - 1,
     backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   recordPopupIcon: {
     width: 44,
