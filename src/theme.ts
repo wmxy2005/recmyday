@@ -68,6 +68,60 @@ export const radius = {
   xl: 20,
 };
 
+export const typography = {
+  screenTitle: {
+    fontSize: 31,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  rowTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  rowMeta: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+} as const;
+
+export const componentSizes = {
+  headerIconButton: 40,
+  settingsIconTile: 46,
+  tabBarHeight: 76,
+  bottomActionOffset: 92,
+} as const;
+
+export const cardVariants = {
+  settingsTime: {
+    activeBackground: '#FFF9EF',
+    activeBorder: '#FFD08A',
+    tileBackground: '#FFF0BF',
+  },
+  settingsUnit: {
+    activeBackground: '#F5FFFE',
+    activeBorder: '#83DED8',
+    choiceBackground: '#EEFFFD',
+    choiceBorder: '#9BE7E2',
+  },
+  settingsList: {
+    activeBackground: '#F7FBFF',
+    activeBorder: '#9CC8FF',
+    choiceBackground: '#EEF6FF',
+    choiceBorder: '#B8D7FF',
+    tileBackground: '#E5F0FF',
+  },
+  settingsSeparate: {
+    activeBackground: '#FFF7F3',
+    activeBorder: '#FFB7A7',
+    choiceBackground: '#FFF1EC',
+    choiceBorder: '#FFC5B8',
+  },
+} as const;
+
 export function useAppTheme() {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';

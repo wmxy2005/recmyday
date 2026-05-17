@@ -22,12 +22,22 @@ export function formatMonthKey(date: Date) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
 }
 
-export function getLogicalDayDate(date: Date, startTimeMinutes: number) {
+export function getCalendarDayDate(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-export function getLogicalDayKey(date: Date, startTimeMinutes: number) {
-  return formatDayKey(getLogicalDayDate(date, startTimeMinutes));
+export function getCalendarDayKey(date: Date) {
+  return formatDayKey(getCalendarDayDate(date));
+}
+
+// Backward-compatible aliases. Day ownership always follows the calendar date;
+// startTimeMinutes is only used for minute calculation.
+export function getLogicalDayDate(date: Date, _startTimeMinutes: number) {
+  return getCalendarDayDate(date);
+}
+
+export function getLogicalDayKey(date: Date, _startTimeMinutes: number) {
+  return getCalendarDayKey(date);
 }
 
 export function getMinutesSinceDayStart(date: Date, startTimeMinutes: number) {
@@ -71,14 +81,22 @@ export function formatTimeFromMinutes(totalMinutes: number) {
   return `${pad2(Math.floor(normalized / 60))}:${pad2(normalized % 60)}`;
 }
 
+function getDecimalHours(totalMinutes: number) {
+  return Math.round((totalMinutes / 60) * 10) / 10;
+}
+
 function formatDecimalHours(totalMinutes: number) {
-  const roundedHours = Math.round((totalMinutes / 60) * 10) / 10;
+  const roundedHours = getDecimalHours(totalMinutes);
 
   return String(roundedHours);
 }
 
 export function formatDuration(totalMinutes: number, unit: RecordUnit = 'minutes') {
   if (unit === 'minutes') {
+    return i18n.t('date.durationMinutes', { value: totalMinutes });
+  }
+
+  if (totalMinutes < 60) {
     return i18n.t('date.durationMinutes', { value: totalMinutes });
   }
 

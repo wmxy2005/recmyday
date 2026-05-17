@@ -11,7 +11,10 @@ web-build/
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+_tmp_*
 .env*.local
+credentials.json
+credentials/
 
 .vs
 android/

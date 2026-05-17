@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -49,7 +49,7 @@ function normalizeMinutes(minutes: number) {
   return Math.max(0, Math.min(23 * 60 + 59, Math.round(minutes)));
 }
 
-function WheelPicker({
+const WheelPicker = memo(function WheelPicker({
   accentColor,
   highlightBackgroundColor,
   highlightBorderColor,
@@ -177,7 +177,7 @@ function WheelPicker({
       </ScrollView>
     </View>
   );
-}
+});
 
 export function TimeWheelPicker({
   accentColor,

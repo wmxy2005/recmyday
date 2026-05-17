@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
   formatMonthKey,
-  getLogicalDayKey,
+  getCalendarDayKey,
   getMinutesSinceDayStart,
   type RecordUnit,
 } from '@/utils/date';
@@ -245,7 +245,7 @@ export async function setSeparateRecordEnabled(db: SQLiteDatabase, enabled: bool
 
 export async function upsertCurrentRecord(db: SQLiteDatabase, date = new Date()) {
   const startTimeMinutes = await getStartTimeMinutes(db);
-  const dayKey = getLogicalDayKey(date, startTimeMinutes);
+  const dayKey = getCalendarDayKey(date);
   const minutesSinceStart = getMinutesSinceDayStart(date, startTimeMinutes);
   const recordedAt = date.toISOString();
   const existingRecord = await getRecordByDayKey(db, dayKey);
@@ -295,8 +295,7 @@ export async function insertSeparateRecord(
   startedAt: Date,
   endedAt = new Date(),
 ) {
-  const startTimeMinutes = await getStartTimeMinutes(db);
-  const dayKey = getLogicalDayKey(endedAt, startTimeMinutes);
+  const dayKey = getCalendarDayKey(endedAt);
   const minutes = Math.max(0, Math.ceil((endedAt.getTime() - startedAt.getTime()) / 60000));
 
   await db.runAsync(
@@ -436,14 +435,12 @@ export async function deleteRecordById(db: SQLiteDatabase, id: number) {
 }
 
 export async function getCurrentDayRecord(db: SQLiteDatabase, date = new Date()) {
-  const startTimeMinutes = await getStartTimeMinutes(db);
-  const dayKey = getLogicalDayKey(date, startTimeMinutes);
+  const dayKey = getCalendarDayKey(date);
   return getRecordByDayKey(db, dayKey);
 }
 
 export async function getCurrentDayKey(db: SQLiteDatabase, date = new Date()) {
-  const startTimeMinutes = await getStartTimeMinutes(db);
-  return getLogicalDayKey(date, startTimeMinutes);
+  return getCalendarDayKey(date);
 }
 
 export async function getRecentRecords(db: SQLiteDatabase, limit = 8) {

@@ -27,89 +27,24 @@ import {
   getCurrentDayRecord,
   getDayRecordsByDayKey,
   getRecentRecords,
-  getRecentRecordLimit,
-  getRecordUnit,
-  getSeparateRecordEnabled,
-  getStartTimeMinutes,
   insertSeparateRecord,
   upsertCurrentRecord,
 } from '@/data/database';
+import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { radius, spacing, useAppTheme } from '@/theme';
 import {
   formatDayLabel,
   formatDayWithWeekdayLabel,
   formatDuration,
-  formatTimeFromMinutes,
   formatWeekdayLabel,
   type RecordUnit,
 } from '@/utils/date';
 import { getRecordMinutesColor } from '@/utils/recordColor';
+import { formatRecordRange, formatRecordsRange, parseRecordTime } from '@/utils/recordFormat';
 
 function getIsBeforeStartTime(startTimeMinutes: number) {
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   return currentMinutes < startTimeMinutes;
-}
-
-function formatRecordRange(record: DayRecord, startTimeMinutes: number) {
-  const endDate = new Date(record.recorded_at);
-  const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
-  const start = startDate.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const end = endDate.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const displayStart =
-    record.minutes_since_start > 0 ? start : formatTimeFromMinutes(startTimeMinutes);
-
-  return `${displayStart} - ${end}`;
-}
-
-function formatRecordsRange(records: DayRecord[], startTimeMinutes: number) {
-  if (records.length === 0) {
-    return '';
-  }
-
-  const range = records.reduce(
-    (currentRange, record) => {
-      const endDate = new Date(record.recorded_at);
-      const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
-
-      return {
-        end: Math.max(currentRange.end, endDate.getTime()),
-        start: Math.min(currentRange.start, startDate.getTime()),
-      };
-    },
-    {
-      end: Number.NEGATIVE_INFINITY,
-      start: Number.POSITIVE_INFINITY,
-    },
-  );
-
-  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) {
-    return '';
-  }
-
-  const start = new Date(range.start).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const end = new Date(range.end).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  return `${startTimeMinutes >= 0 ? start : formatTimeFromMinutes(startTimeMinutes)} - ${end}`;
-}
-
-function parseRecordTime(value: string) {
-  const normalizedValue = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
-  const date = new Date(normalizedValue);
-
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function getClockHandsFromRecord(record: DayRecord | null) {
@@ -172,33 +107,28 @@ export default function HomeScreen() {
       setIsLoading(true);
     }
 
-    const [startTime, unit, limit, separateEnabled] = await Promise.all([
-      getStartTimeMinutes(db),
-      getRecordUnit(db),
-      getRecentRecordLimit(db),
-      getSeparateRecordEnabled(db),
-    ]);
+    const settings = await readRecordSettings(db);
     const [dayKey, currentRecord, recentRecords] = await Promise.all([
       getCurrentDayKey(db),
       getCurrentDayRecord(db),
-      getRecentRecords(db, limit),
+      getRecentRecords(db, settings.recentRecordLimit),
     ]);
     const currentDayRecords = await getDayRecordsByDayKey(db, dayKey);
 
-    setStartTimeMinutes(startTime);
-    setRecordUnit(unit);
-    setRecentRecordLimit(limit);
-    setSeparateRecordEnabled(separateEnabled);
-    if (separateEnabled) {
+    setStartTimeMinutes(settings.startTimeMinutes);
+    setRecordUnit(settings.recordUnit);
+    setRecentRecordLimit(settings.recentRecordLimit);
+    setSeparateRecordEnabled(settings.separateRecordEnabled);
+    if (settings.separateRecordEnabled) {
       setActiveSeparateRecordStartedAt(null);
     }
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
     setTodayRecords(currentDayRecords);
     setShowRecordButton(() => {
-      const isBeforeStartTimeNow = getIsBeforeStartTime(startTime);
+      const isBeforeStartTimeNow = getIsBeforeStartTime(settings.startTimeMinutes);
 
-      if (!separateEnabled || !currentRecord) {
+      if (!settings.separateRecordEnabled || !currentRecord) {
         return !isBeforeStartTimeNow;
       }
 

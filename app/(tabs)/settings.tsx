@@ -21,10 +21,6 @@ import { ConfirmationDialog } from '@/components/ConfirmationDialog';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   getAllDayRecords,
-  getRecordUnit,
-  getRecentRecordLimit,
-  getStartTimeMinutes,
-  getSeparateRecordEnabled,
   replaceAllDayRecords,
   setRecentRecordLimit as saveRecentRecordLimit,
   setRecordUnit as saveRecordUnit,
@@ -32,7 +28,9 @@ import {
   setStartTimeMinutes,
   type ImportDayRecord,
 } from '@/data/database';
-import { radius, spacing, useAppTheme } from '@/theme';
+import { readRecordSettings } from '@/hooks/useRecordSettings';
+import { cardVariants, componentSizes, radius, spacing, typography, useAppTheme } from '@/theme';
+import { createExportFile, maxImportFileBytes, parseExportFile } from '@/utils/backupFile';
 import { formatTimeFromMinutes, type RecordUnit } from '@/utils/date';
 
 type SettingSection = 'startTime' | 'recordUnit' | 'recentRecords' | 'separateRecord';
@@ -45,82 +43,6 @@ type PromptDialog = {
 };
 
 const recentRecordOptions = [5, 10, 20, 30];
-const exportSchemaVersion = 1;
-const exportAppId = 'recmyday';
-
-type DayRecordsExportFile = {
-  app: typeof exportAppId;
-  schemaVersion: typeof exportSchemaVersion;
-  exportedAt: string;
-  recordCount: number;
-  records: ImportDayRecord[];
-  checksum: string;
-};
-
-function checksumText(text: string) {
-  let hash = 0x811c9dc5;
-
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-
-  return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
-function createExportChecksum(payload: Omit<DayRecordsExportFile, 'checksum'>) {
-  return checksumText(JSON.stringify(payload));
-}
-
-function isValidIsoDate(value: unknown) {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
-}
-
-function isImportDayRecord(value: unknown): value is ImportDayRecord {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const record = value as Partial<ImportDayRecord>;
-  const timestampMs = record.timestamp_ms;
-  const minutesSinceStart = record.minutes_since_start;
-
-  return (
-    typeof record.day_key === 'string' &&
-    /^\d{4}-\d{2}-\d{2}$/.test(record.day_key) &&
-    isValidIsoDate(record.recorded_at) &&
-    Number.isInteger(timestampMs) &&
-    typeof timestampMs === 'number' &&
-    timestampMs >= 0 &&
-    Number.isInteger(minutesSinceStart) &&
-    typeof minutesSinceStart === 'number' &&
-    minutesSinceStart >= 0 &&
-    typeof record.created_at === 'string' &&
-    record.created_at.length > 0 &&
-    typeof record.updated_at === 'string' &&
-    record.updated_at.length > 0
-  );
-}
-
-function parseExportFile(text: string) {
-  const parsed = JSON.parse(text) as Partial<DayRecordsExportFile>;
-  const { checksum, ...payload } = parsed;
-
-  if (
-    parsed.app !== exportAppId ||
-    parsed.schemaVersion !== exportSchemaVersion ||
-    !isValidIsoDate(parsed.exportedAt) ||
-    !Array.isArray(parsed.records) ||
-    parsed.records.some((record) => !isImportDayRecord(record)) ||
-    parsed.recordCount !== parsed.records.length ||
-    typeof checksum !== 'string' ||
-    checksum !== createExportChecksum(payload as Omit<DayRecordsExportFile, 'checksum'>)
-  ) {
-    throw new Error('Invalid export file');
-  }
-
-  return parsed.records;
-}
 
 function downloadExportFileWeb(filename: string, content: string) {
   if (typeof document === 'undefined') {
@@ -188,6 +110,11 @@ function readImportFileWeb() {
         return;
       }
 
+      if (selectedFile.size > maxImportFileBytes) {
+        fail(new Error('Import file exceeds the maximum supported size'));
+        return;
+      }
+
       try {
         settle(await selectedFile.text());
       } catch (error) {
@@ -217,17 +144,12 @@ export default function SettingsScreen() {
   const startMinutesSaveIdRef = useRef(0);
 
   const loadSettings = useCallback(async () => {
-    const [startMinutes, unit, limit, separateEnabled] = await Promise.all([
-      getStartTimeMinutes(db),
-      getRecordUnit(db),
-      getRecentRecordLimit(db),
-      getSeparateRecordEnabled(db),
-    ]);
+    const settings = await readRecordSettings(db);
 
-    setPendingStartMinutes(startMinutes);
-    setRecordUnit(unit);
-    setRecentRecordLimit(String(limit));
-    setSeparateRecordEnabled(separateEnabled);
+    setPendingStartMinutes(settings.startTimeMinutes);
+    setRecordUnit(settings.recordUnit);
+    setRecentRecordLimit(String(settings.recentRecordLimit));
+    setSeparateRecordEnabled(settings.separateRecordEnabled);
   }, [db]);
 
   useFocusEffect(
@@ -295,17 +217,10 @@ export default function SettingsScreen() {
       setIsTransferring(true);
       const records = await getAllDayRecords(db);
       const exportedAt = new Date().toISOString();
-      const payload: Omit<DayRecordsExportFile, 'checksum'> = {
-        app: exportAppId,
-        schemaVersion: exportSchemaVersion,
+      const exportFile = createExportFile(
+        records.map(({ id, ...record }) => record),
         exportedAt,
-        recordCount: records.length,
-        records: records.map(({ id, ...record }) => record),
-      };
-      const exportFile: DayRecordsExportFile = {
-        ...payload,
-        checksum: createExportChecksum(payload),
-      };
+      );
       const filename = `recmyday-records-${exportedAt.slice(0, 10)}.json`;
       const fileContent = JSON.stringify(exportFile, null, 2);
       const showExportSuccess = () =>
@@ -346,7 +261,11 @@ export default function SettingsScreen() {
         UTI: 'public.json',
       });
       showExportSuccess();
-    } catch {
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('Export failed', error);
+      }
+
       setPromptDialog({
         iconName: 'alert-circle-outline',
         title: t('settings.exportFailedTitle'),
@@ -368,7 +287,11 @@ export default function SettingsScreen() {
         message: t('settings.importSuccessMessage', { count: records.length }),
         variant: 'success',
       });
-    } catch {
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('Import failed', error);
+      }
+
       setPromptDialog({
         iconName: 'alert-circle-outline',
         title: t('settings.importFailedTitle'),
@@ -416,6 +339,13 @@ export default function SettingsScreen() {
           return;
         }
 
+        if (
+          typeof result.assets[0].size === 'number' &&
+          result.assets[0].size > maxImportFileBytes
+        ) {
+          throw new Error('Import file exceeds the maximum supported size');
+        }
+
         text = await new File(result.assets[0].uri).text();
       }
 
@@ -428,7 +358,11 @@ export default function SettingsScreen() {
 
       setIsTransferring(false);
       importRecords(records);
-    } catch {
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('Import file rejected', error);
+      }
+
       setPromptDialog({
         iconName: 'alert-circle-outline',
         title: t('settings.importInvalidTitle'),
@@ -857,9 +791,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     title: {
       flex: 1,
       color: colors.text,
-      fontSize: 31,
-      fontWeight: '900',
-      letterSpacing: 0,
+      ...typography.screenTitle,
     },
     headerActions: {
       flexDirection: 'row',
@@ -867,8 +799,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       gap: spacing.sm,
     },
     headerButton: {
-      width: 42,
-      height: 42,
+      width: componentSizes.headerIconButton + 2,
+      height: componentSizes.headerIconButton + 2,
       borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
@@ -902,20 +834,20 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       ...shadow,
     },
     optionCardTimeActive: {
-      borderColor: '#FFD08A',
-      backgroundColor: '#FFF9EF',
+      borderColor: cardVariants.settingsTime.activeBorder,
+      backgroundColor: cardVariants.settingsTime.activeBackground,
     },
     optionCardUnitActive: {
-      borderColor: '#83DED8',
-      backgroundColor: '#F5FFFE',
+      borderColor: cardVariants.settingsUnit.activeBorder,
+      backgroundColor: cardVariants.settingsUnit.activeBackground,
     },
     optionCardListActive: {
-      borderColor: '#9CC8FF',
-      backgroundColor: '#F7FBFF',
+      borderColor: cardVariants.settingsList.activeBorder,
+      backgroundColor: cardVariants.settingsList.activeBackground,
     },
     optionCardSeparateActive: {
-      borderColor: '#FFB7A7',
-      backgroundColor: '#FFF7F3',
+      borderColor: cardVariants.settingsSeparate.activeBorder,
+      backgroundColor: cardVariants.settingsSeparate.activeBackground,
     },
     settingRow: {
       minHeight: 72,
@@ -926,20 +858,20 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       paddingVertical: spacing.sm,
     },
     iconTile: {
-      width: 46,
-      height: 46,
+      width: componentSizes.settingsIconTile,
+      height: componentSizes.settingsIconTile,
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
     },
     timeTile: {
-      backgroundColor: '#FFF0BF',
+      backgroundColor: cardVariants.settingsTime.tileBackground,
     },
     unitTile: {
       backgroundColor: colors.infoSoft,
     },
     listTile: {
-      backgroundColor: '#E5F0FF',
+      backgroundColor: cardVariants.settingsList.tileBackground,
     },
     separateTile: {
       backgroundColor: colors.dangerSoft,
@@ -947,8 +879,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     rowLabel: {
       flex: 1,
       color: colors.text,
-      fontSize: 16,
-      fontWeight: '900',
+      ...typography.rowTitle,
     },
     rowValue: {
       color: colors.text,
@@ -980,12 +911,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: colors.border,
     },
     choiceRowUnitActive: {
-      backgroundColor: '#EEFFFD',
-      borderColor: '#9BE7E2',
+      backgroundColor: cardVariants.settingsUnit.choiceBackground,
+      borderColor: cardVariants.settingsUnit.choiceBorder,
     },
     choiceRowSeparateActive: {
-      backgroundColor: '#FFF1EC',
-      borderColor: '#FFC5B8',
+      backgroundColor: cardVariants.settingsSeparate.choiceBackground,
+      borderColor: cardVariants.settingsSeparate.choiceBorder,
     },
     radio: {
       width: 28,
@@ -1036,8 +967,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: colors.border,
     },
     limitRowActive: {
-      backgroundColor: '#EEF6FF',
-      borderColor: '#B8D7FF',
+      backgroundColor: cardVariants.settingsList.choiceBackground,
+      borderColor: cardVariants.settingsList.choiceBorder,
     },
     limitText: {
       color: colors.text,

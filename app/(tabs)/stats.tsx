@@ -4,7 +4,6 @@ import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
   type ComponentProps,
-  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -14,29 +13,17 @@ import {
 import {
   ActivityIndicator,
   Animated as RNAnimated,
-  Modal,
   PanResponder,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  type StyleProp,
-  type ViewStyle,
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useTranslation } from 'react-i18next';
-import Animated, {
-  cancelAnimation,
-  Easing,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
 import { ConfirmationDialog } from '@/components/ConfirmationDialog';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
@@ -44,12 +31,10 @@ import {
   deleteRecordById,
   getMonthRecords,
   getMonthTotalMinutes,
-  getRecordUnit,
-  getSeparateRecordEnabled,
-  getStartTimeMinutes,
   insertManualRecord,
   updateManualRecordById,
 } from '@/data/database';
+import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { radius, spacing, useAppTheme } from '@/theme';
 import {
   addMonths,
@@ -59,219 +44,25 @@ import {
   formatDuration,
   formatMonthTitle,
   formatWeekdayLabel,
-  formatTimeFromMinutes,
   getMonthCalendarCells,
   type RecordUnit,
 } from '@/utils/date';
 import { getRecordMinutesColor } from '@/utils/recordColor';
+import {
+  formatRecordDateTime,
+  formatRecordRange,
+  getRecordStartEndMinutes,
+} from '@/utils/recordFormat';
 
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
 const deleteActionWidth = 82;
-const sheetFallbackHeight = 360;
-const modalGestureRootStyle = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-});
 
 type EditorTimeSection = 'start' | 'end';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function getSheetAnimationMetrics(height: number) {
-  const measuredHeight = Math.max(height, sheetFallbackHeight);
-
-  return {
-    backdropEnterDuration: clamp(Math.round(150 + measuredHeight * 0.1), 190, 270),
-    backdropExitDuration: clamp(Math.round(120 + measuredHeight * 0.07), 150, 220),
-    enterDuration: clamp(Math.round(190 + measuredHeight * 0.2), 260, 430),
-    exitDuration: clamp(Math.round(220 + measuredHeight * 0.18), 300, 460),
-    enterTravel: clamp(Math.round(measuredHeight * 0.18), 64, 128),
-    exitTravel: measuredHeight + 48,
-  };
-}
-
-type AnimatedSheetModalProps = {
-  backdropStyle: StyleProp<ViewStyle>;
-  children: ReactNode;
-  dimBackdrop?: boolean;
-  onClose: () => void;
-  onExitComplete?: () => void;
-  overlay?: ReactNode;
-  sheetStyle: StyleProp<ViewStyle>;
-  visible: boolean;
-};
-
-function AnimatedSheetModal({
-  backdropStyle,
-  children,
-  dimBackdrop = true,
-  onClose,
-  onExitComplete,
-  overlay,
-  sheetStyle,
-  visible,
-}: AnimatedSheetModalProps) {
-  const [isMounted, setIsMounted] = useState(visible);
-  const backdropProgress = useSharedValue(visible ? 1 : 0);
-  const onExitCompleteRef = useRef(onExitComplete);
-  const sheetHeightRef = useRef(sheetFallbackHeight);
-  const sheetProgress = useSharedValue(visible ? 1 : 0);
-  const [sheetTravel, setSheetTravel] = useState(() => {
-    const metrics = getSheetAnimationMetrics(sheetFallbackHeight);
-
-    return {
-      enter: metrics.enterTravel,
-      exit: metrics.exitTravel,
-    };
-  });
-
-  useEffect(() => {
-    onExitCompleteRef.current = onExitComplete;
-  }, [onExitComplete]);
-
-  const handleExitFinished = useCallback(() => {
-    setIsMounted(false);
-    onExitCompleteRef.current?.();
-  }, []);
-
-  useEffect(() => {
-    cancelAnimation(backdropProgress);
-    cancelAnimation(sheetProgress);
-
-    if (visible) {
-      setIsMounted(true);
-      const metrics = getSheetAnimationMetrics(sheetHeightRef.current);
-      backdropProgress.value = withTiming(1, {
-        duration: metrics.backdropEnterDuration,
-        easing: Easing.out(Easing.cubic),
-      });
-      sheetProgress.value = withTiming(1, {
-        duration: metrics.enterDuration,
-        easing: Easing.bezier(0.16, 1, 0.3, 1),
-      });
-      return;
-    }
-
-    if (!isMounted) {
-      return;
-    }
-
-    const metrics = getSheetAnimationMetrics(sheetHeightRef.current);
-    backdropProgress.value = withTiming(0, {
-      duration: metrics.backdropExitDuration,
-      easing: Easing.in(Easing.cubic),
-    });
-    sheetProgress.value = withTiming(0, {
-      duration: metrics.exitDuration,
-      easing: Easing.bezier(0.32, 0, 0.67, 0),
-    }, (finished) => {
-      if (finished) {
-        runOnJS(handleExitFinished)();
-      }
-    });
-  }, [backdropProgress, handleExitFinished, isMounted, sheetProgress, visible]);
-
-  const backdropAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: backdropProgress.value,
-  }));
-
-  const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: 0.9 + sheetProgress.value * 0.1,
-    transform: [
-      {
-        translateY: (visible ? sheetTravel.enter : sheetTravel.exit) * (1 - sheetProgress.value),
-      },
-      {
-        scale: 0.985 + sheetProgress.value * 0.015,
-      },
-    ],
-  }));
-
-  if (!isMounted) {
-    return null;
-  }
-
-  const handleSheetLayout = (height: number) => {
-    if (Math.abs(sheetHeightRef.current - height) < 1) {
-      return;
-    }
-
-    sheetHeightRef.current = height;
-    const metrics = getSheetAnimationMetrics(height);
-    setSheetTravel({
-      enter: metrics.enterTravel,
-      exit: metrics.exitTravel,
-    });
-  };
-
-  return (
-    <Modal animationType="none" onRequestClose={onClose} transparent visible>
-      <GestureHandlerRootView style={modalGestureRootStyle.root}>
-        {dimBackdrop ? (
-          <Animated.View style={[backdropStyle, backdropAnimatedStyle]}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-          </Animated.View>
-        ) : (
-          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        )}
-        <Animated.View
-          onLayout={({ nativeEvent }) => handleSheetLayout(nativeEvent.layout.height)}
-          style={[sheetStyle, sheetAnimatedStyle]}
-        >
-          {children}
-        </Animated.View>
-        {overlay}
-      </GestureHandlerRootView>
-    </Modal>
-  );
-}
-
 function pad2(value: number) {
   return String(value).padStart(2, '0');
-}
-
-function formatDateTime(value: string | undefined, emptyLabel: string) {
-  if (!value) {
-    return emptyLabel;
-  }
-
-  return new Date(`${value.replace(' ', 'T')}Z`).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
-function formatRecordRange(record: DayRecord, startTimeMinutes: number) {
-  const endDate = new Date(record.recorded_at);
-  const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
-  const start = startDate.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const end = endDate.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const displayStart =
-    record.minutes_since_start > 0 ? start : formatTimeFromMinutes(startTimeMinutes);
-
-  return `${displayStart} - ${end}`;
-}
-
-function getRecordStartEndMinutes(record: DayRecord) {
-  const endDate = new Date(record.recorded_at);
-  const endMinutes = endDate.getHours() * 60 + endDate.getMinutes();
-  const startDate = new Date(endDate.getTime() - record.minutes_since_start * 60000);
-  const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
-
-  return { endMinutes, startMinutes };
 }
 
 function formatTimeInput(minutes: number) {
@@ -364,19 +155,17 @@ export default function StatsScreen() {
       setIsLoading(true);
     }
 
-    const [monthRecords, total, unit, startTime, separateEnabled] = await Promise.all([
+    const [monthRecords, total, settings] = await Promise.all([
       getMonthRecords(db, monthDate),
       getMonthTotalMinutes(db, monthDate),
-      getRecordUnit(db),
-      getStartTimeMinutes(db),
-      getSeparateRecordEnabled(db),
+      readRecordSettings(db),
     ]);
 
     setRecords(monthRecords);
     setTotalMinutes(total);
-    setRecordUnit(unit);
-    setSeparateRecordEnabled(separateEnabled);
-    setStartTimeMinutes(startTime);
+    setRecordUnit(settings.recordUnit);
+    setSeparateRecordEnabled(settings.separateRecordEnabled);
+    setStartTimeMinutes(settings.startTimeMinutes);
     setIsLoading(false);
   }, [db, monthDate]);
 
@@ -1091,7 +880,7 @@ function SwipeRecordRow({
       <View style={styles.recordPopupCopy}>
         <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
         <Text style={styles.recordPopupMeta}>
-          {formatDateTime(record.updated_at, t('stats.noData'))}
+          {formatRecordDateTime(record.updated_at, t('stats.noData'))}
         </Text>
       </View>
       <Text

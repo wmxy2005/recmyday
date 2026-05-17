@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -8,11 +9,11 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import type { ViewStyle } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { spacing, useAppTheme } from '@/theme';
+
+const cancelLongPressDurationMs = 800;
 
 type RecordButtonProps = {
   animatedStyle: AnimatedStyle<ViewStyle>;
@@ -38,8 +39,8 @@ function RecordButtonComponent({
   isRecording,
   label,
   recordingStartedAt,
-  recordingUnitLabel = '分钟',
-  secondsUnitLabel = '秒',
+  recordingUnitLabel = 'min',
+  secondsUnitLabel = 'sec',
   onPress,
   onCancelRecording,
   pointerEvents,
@@ -47,7 +48,7 @@ function RecordButtonComponent({
 }: RecordButtonProps) {
   const theme = useAppTheme();
   const { colors } = theme;
-  const styles = makeStyles(theme);
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const cancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelTriggeredRef = useRef(false);
@@ -97,6 +98,7 @@ function RecordButtonComponent({
     : null;
   const elapsedMinutes = elapsedSeconds === null ? null : Math.floor(elapsedSeconds / 60);
   const remainingSeconds = elapsedSeconds === null ? null : elapsedSeconds % 60;
+
   const handlePressIn = () => {
     if (!canCancelRecording) {
       return;
@@ -106,14 +108,14 @@ function RecordButtonComponent({
     cancelAnimation(cancelProgress);
     cancelProgress.value = 0;
     cancelProgress.value = withTiming(1, {
-      duration: 2000,
+      duration: cancelLongPressDurationMs,
       easing: Easing.linear,
     });
     cancelTimerRef.current = setTimeout(() => {
       cancelTriggeredRef.current = true;
       clearCancelProgress();
       onCancelRecording?.();
-    }, 2000);
+    }, cancelLongPressDurationMs);
   };
 
   const handlePressOut = () => {
@@ -168,7 +170,7 @@ function RecordButtonComponent({
           />
         </View>
         <View style={styles.textGroup}>
-          <Text style={styles.label}>{label ?? (hasRecord ? '更新' : '记录')}</Text>
+          <Text style={styles.label}>{label ?? (hasRecord ? 'Update' : 'Record')}</Text>
           <Text style={styles.time}>
             {elapsedMinutes === null || remainingSeconds === null
               ? currentTime
@@ -186,68 +188,68 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   const { colors, shadow } = theme;
 
   return StyleSheet.create({
-  button: {
-    minWidth: 148,
-    height: 76,
-    paddingLeft: spacing.sm,
-    paddingRight: spacing.lg,
-    borderRadius: 38,
-    backgroundColor: colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    ...shadow,
-    overflow: 'hidden',
-  },
-  cancelProgressFill: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: '#0D7DFF',
-    opacity: 0.76,
-  },
-  pressed: {
-    backgroundColor: colors.primaryDark,
-  },
-  recorded: {
-    backgroundColor: colors.primaryDark,
-  },
-  danger: {
-    backgroundColor: colors.danger,
-  },
-  success: {
-    backgroundColor: '#22B66E',
-  },
-  iconBadge: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    zIndex: 1,
-  },
-  textGroup: {
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  label: {
-    color: colors.surface,
-    fontSize: 15,
-    fontWeight: '900',
-    lineHeight: 18,
-  },
-  time: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 11,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  disabled: {
-    opacity: 0.7,
-  },
+    button: {
+      minWidth: 148,
+      height: 76,
+      paddingLeft: spacing.sm,
+      paddingRight: spacing.lg,
+      borderRadius: 38,
+      backgroundColor: colors.primary,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      ...shadow,
+      overflow: 'hidden',
+    },
+    cancelProgressFill: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      backgroundColor: colors.highlight,
+      opacity: 0.76,
+    },
+    pressed: {
+      backgroundColor: colors.primaryDark,
+    },
+    recorded: {
+      backgroundColor: colors.primaryDark,
+    },
+    danger: {
+      backgroundColor: colors.danger,
+    },
+    success: {
+      backgroundColor: colors.info,
+    },
+    iconBadge: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      zIndex: 1,
+    },
+    textGroup: {
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+      zIndex: 1,
+    },
+    label: {
+      color: colors.surface,
+      fontSize: 15,
+      fontWeight: '900',
+      lineHeight: 18,
+    },
+    time: {
+      color: 'rgba(255,255,255,0.82)',
+      fontSize: 11,
+      fontWeight: '800',
+      marginTop: 2,
+    },
+    disabled: {
+      opacity: 0.7,
+    },
   });
 };
