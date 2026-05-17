@@ -88,8 +88,9 @@ function getSheetAnimationMetrics(height: number) {
     backdropEnterDuration: clamp(Math.round(150 + measuredHeight * 0.1), 190, 270),
     backdropExitDuration: clamp(Math.round(120 + measuredHeight * 0.07), 150, 220),
     enterDuration: clamp(Math.round(190 + measuredHeight * 0.2), 260, 430),
-    exitDuration: clamp(Math.round(170 + measuredHeight * 0.16), 230, 370),
-    travel: clamp(Math.round(measuredHeight * 0.18), 64, 128),
+    exitDuration: clamp(Math.round(220 + measuredHeight * 0.18), 300, 460),
+    enterTravel: clamp(Math.round(measuredHeight * 0.18), 64, 128),
+    exitTravel: measuredHeight + 48,
   };
 }
 
@@ -119,9 +120,14 @@ function AnimatedSheetModal({
   const onExitCompleteRef = useRef(onExitComplete);
   const sheetHeightRef = useRef(sheetFallbackHeight);
   const sheetProgress = useSharedValue(visible ? 1 : 0);
-  const [sheetTravel, setSheetTravel] = useState(
-    () => getSheetAnimationMetrics(sheetFallbackHeight).travel,
-  );
+  const [sheetTravel, setSheetTravel] = useState(() => {
+    const metrics = getSheetAnimationMetrics(sheetFallbackHeight);
+
+    return {
+      enter: metrics.enterTravel,
+      exit: metrics.exitTravel,
+    };
+  });
 
   useEffect(() => {
     onExitCompleteRef.current = onExitComplete;
@@ -177,7 +183,7 @@ function AnimatedSheetModal({
     opacity: 0.9 + sheetProgress.value * 0.1,
     transform: [
       {
-        translateY: sheetTravel * (1 - sheetProgress.value),
+        translateY: (visible ? sheetTravel.enter : sheetTravel.exit) * (1 - sheetProgress.value),
       },
       {
         scale: 0.985 + sheetProgress.value * 0.015,
@@ -195,7 +201,11 @@ function AnimatedSheetModal({
     }
 
     sheetHeightRef.current = height;
-    setSheetTravel(getSheetAnimationMetrics(height).travel);
+    const metrics = getSheetAnimationMetrics(height);
+    setSheetTravel({
+      enter: metrics.enterTravel,
+      exit: metrics.exitTravel,
+    });
   };
 
   return (
