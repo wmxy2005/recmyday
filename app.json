@@ -36,7 +36,8 @@
         }
       ],
       "expo-sqlite",
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/with-android-high-refresh-rate"
     ],
     "extra": {
       "router": {

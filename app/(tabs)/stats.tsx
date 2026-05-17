@@ -12,14 +12,14 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Animated as RNAnimated,
-  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useTranslation } from 'react-i18next';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
@@ -781,63 +781,66 @@ function SwipeRecordRow({
   styles,
   t,
 }: SwipeRecordRowProps) {
-  const translateX = useRef(new RNAnimated.Value(0)).current;
-  const latestTranslateXRef = useRef(0);
+  const translateX = useSharedValue(0);
+  const startTranslateX = useSharedValue(0);
 
-  const isHorizontalSwipe = useCallback(
-    (dx: number, dy: number) =>
-      !deleteActionHidden && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.25,
-    [deleteActionHidden],
+  const snapConfig = useMemo(
+    () => ({
+      damping: 18,
+      mass: 0.45,
+      stiffness: 260,
+    }),
+    [],
   );
 
   const snapTo = useCallback(
     (value: number) => {
-      latestTranslateXRef.current = value;
-      RNAnimated.spring(translateX, {
-        bounciness: 0,
-        speed: 18,
-        toValue: value,
-        useNativeDriver: true,
-      }).start();
+      translateX.value = withSpring(value, snapConfig);
     },
-    [translateX],
+    [snapConfig, translateX],
   );
 
-  const panResponder = useMemo(
+  const panGesture = useMemo(
     () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
-          isHorizontalSwipe(gestureState.dx, gestureState.dy),
-        onMoveShouldSetPanResponder: (_, gestureState) =>
-          isHorizontalSwipe(gestureState.dx, gestureState.dy),
-        onPanResponderGrant: () => {
-          translateX.stopAnimation((value) => {
-            latestTranslateXRef.current = value;
-          });
-        },
-        onPanResponderMove: (_, gestureState) => {
+      Gesture.Pan()
+        .enabled(!deleteActionHidden)
+        .activeOffsetX([-8, 8])
+        .failOffsetY([-18, 18])
+        .onBegin(() => {
+          startTranslateX.value = translateX.value;
+        })
+        .onUpdate((event) => {
           const nextValue = Math.max(
             -deleteActionWidth,
-            Math.min(0, latestTranslateXRef.current + gestureState.dx),
+            Math.min(0, startTranslateX.value + event.translationX),
           );
-          translateX.setValue(nextValue);
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          const nextValue = latestTranslateXRef.current + gestureState.dx;
-          const isFastLeftSwipe = gestureState.vx < -0.35;
-          const isFastRightSwipe = gestureState.vx > 0.35;
+          translateX.value = nextValue;
+        })
+        .onEnd((event) => {
+          const nextValue = startTranslateX.value + event.translationX;
+          const isFastLeftSwipe = event.velocityX < -350;
+          const isFastRightSwipe = event.velocityX > 350;
           const shouldOpen =
             !isFastRightSwipe && (isFastLeftSwipe || nextValue < -deleteActionWidth / 2);
 
-          snapTo(shouldOpen ? -deleteActionWidth : 0);
-        },
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderTerminate: () => {
-          snapTo(latestTranslateXRef.current < -deleteActionWidth / 2 ? -deleteActionWidth : 0);
-        },
-        onShouldBlockNativeResponder: () => true,
-      }),
-    [isHorizontalSwipe, snapTo, translateX],
+          translateX.value = withSpring(shouldOpen ? -deleteActionWidth : 0, snapConfig);
+        })
+        .onFinalize(() => {
+          if (translateX.value > 0 || translateX.value < -deleteActionWidth) {
+            translateX.value = withSpring(
+              Math.max(-deleteActionWidth, Math.min(0, translateX.value)),
+              snapConfig,
+            );
+          }
+        }),
+    [deleteActionHidden, snapConfig, startTranslateX, translateX],
+  );
+
+  const animatedRecordStyle = useAnimatedStyle(
+    () => ({
+      transform: [{ translateX: translateX.value }],
+    }),
+    [translateX],
   );
 
   useEffect(() => {
@@ -908,17 +911,16 @@ function SwipeRecordRow({
     <View style={styles.swipeRecordShadow}>
       <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
         {renderDeleteAction()}
-        <RNAnimated.View
-          {...panResponder.panHandlers}
-          style={[
-            styles.recordPopupRow,
-            {
-              transform: [{ translateX }],
-            },
-          ]}
-        >
-          {renderRecordContent()}
-        </RNAnimated.View>
+        <GestureDetector gesture={panGesture}>
+          <Animated.View
+            style={[
+              styles.recordPopupRow,
+              animatedRecordStyle,
+            ]}
+          >
+            {renderRecordContent()}
+          </Animated.View>
+        </GestureDetector>
       </View>
     </View>
   );
