@@ -1,6 +1,13 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Animated, { type AnimatedStyle } from 'react-native-reanimated';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  type AnimatedStyle,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import type { ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -42,12 +49,14 @@ function RecordButtonComponent({
   const { colors } = theme;
   const styles = makeStyles(theme);
   const [currentDate, setCurrentDate] = useState(() => new Date());
-  const [cancelProgress, setCancelProgress] = useState(0);
   const cancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cancelStartedAtRef = useRef(0);
   const cancelTriggeredRef = useRef(false);
+  const cancelProgress = useSharedValue(0);
   const canCancelRecording = Boolean(recordingStartedAt && onCancelRecording);
+
+  const cancelProgressStyle = useAnimatedStyle(() => ({
+    width: `${cancelProgress.value * 100}%`,
+  }));
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -57,31 +66,26 @@ function RecordButtonComponent({
     return () => clearInterval(timer);
   }, []);
 
-  const clearCancelProgress = () => {
+  const clearCancelProgress = useCallback(() => {
     if (cancelTimerRef.current) {
       clearTimeout(cancelTimerRef.current);
       cancelTimerRef.current = null;
     }
 
-    if (cancelProgressTimerRef.current) {
-      clearInterval(cancelProgressTimerRef.current);
-      cancelProgressTimerRef.current = null;
-    }
-
-    cancelStartedAtRef.current = 0;
-    setCancelProgress(0);
-  };
+    cancelAnimation(cancelProgress);
+    cancelProgress.value = 0;
+  }, [cancelProgress]);
 
   useEffect(() => {
     return clearCancelProgress;
-  }, []);
+  }, [clearCancelProgress]);
 
   useEffect(() => {
     if (!recordingStartedAt) {
       cancelTriggeredRef.current = false;
       clearCancelProgress();
     }
-  }, [recordingStartedAt]);
+  }, [clearCancelProgress, recordingStartedAt]);
 
   const currentTime = currentDate.toLocaleTimeString([], {
     hour: '2-digit',
@@ -99,12 +103,12 @@ function RecordButtonComponent({
     }
 
     cancelTriggeredRef.current = false;
-    cancelStartedAtRef.current = Date.now();
-    setCancelProgress(0);
-    cancelProgressTimerRef.current = setInterval(() => {
-      const nextProgress = Math.min(1, (Date.now() - cancelStartedAtRef.current) / 2000);
-      setCancelProgress(nextProgress);
-    }, 16);
+    cancelAnimation(cancelProgress);
+    cancelProgress.value = 0;
+    cancelProgress.value = withTiming(1, {
+      duration: 2000,
+      easing: Easing.linear,
+    });
     cancelTimerRef.current = setTimeout(() => {
       cancelTriggeredRef.current = true;
       clearCancelProgress();
@@ -151,9 +155,9 @@ function RecordButtonComponent({
         ]}
       >
         {canCancelRecording ? (
-          <View
+          <Animated.View
             pointerEvents="none"
-            style={[styles.cancelProgressFill, { width: `${cancelProgress * 100}%` }]}
+            style={[styles.cancelProgressFill, cancelProgressStyle]}
           />
         ) : null}
         <View style={styles.iconBadge}>

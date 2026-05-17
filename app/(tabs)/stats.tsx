@@ -13,11 +13,9 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
+  Animated as RNAnimated,
   Modal,
   PanResponder,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,8 +24,16 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useTranslation } from 'react-i18next';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
@@ -109,10 +115,10 @@ function AnimatedSheetModal({
   visible,
 }: AnimatedSheetModalProps) {
   const [isMounted, setIsMounted] = useState(visible);
-  const backdropProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const backdropProgress = useSharedValue(visible ? 1 : 0);
   const onExitCompleteRef = useRef(onExitComplete);
   const sheetHeightRef = useRef(sheetFallbackHeight);
-  const sheetProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const sheetProgress = useSharedValue(visible ? 1 : 0);
   const [sheetTravel, setSheetTravel] = useState(
     () => getSheetAnimationMetrics(sheetFallbackHeight).travel,
   );
@@ -121,27 +127,26 @@ function AnimatedSheetModal({
     onExitCompleteRef.current = onExitComplete;
   }, [onExitComplete]);
 
+  const handleExitFinished = useCallback(() => {
+    setIsMounted(false);
+    onExitCompleteRef.current?.();
+  }, []);
+
   useEffect(() => {
-    backdropProgress.stopAnimation();
-    sheetProgress.stopAnimation();
+    cancelAnimation(backdropProgress);
+    cancelAnimation(sheetProgress);
 
     if (visible) {
       setIsMounted(true);
       const metrics = getSheetAnimationMetrics(sheetHeightRef.current);
-      Animated.parallel([
-        Animated.timing(backdropProgress, {
-          duration: metrics.backdropEnterDuration,
-          easing: Easing.out(Easing.cubic),
-          toValue: 1,
-          useNativeDriver: true,
-        }),
-        Animated.timing(sheetProgress, {
-          duration: metrics.enterDuration,
-          easing: Easing.bezier(0.16, 1, 0.3, 1),
-          toValue: 1,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      backdropProgress.value = withTiming(1, {
+        duration: metrics.backdropEnterDuration,
+        easing: Easing.out(Easing.cubic),
+      });
+      sheetProgress.value = withTiming(1, {
+        duration: metrics.enterDuration,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
       return;
     }
 
@@ -150,28 +155,35 @@ function AnimatedSheetModal({
     }
 
     const metrics = getSheetAnimationMetrics(sheetHeightRef.current);
-    Animated.parallel([
-      Animated.timing(backdropProgress, {
-        duration: metrics.backdropExitDuration,
-        easing: Easing.in(Easing.cubic),
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-      Animated.timing(sheetProgress, {
-        duration: metrics.exitDuration,
-        easing: Easing.bezier(0.32, 0, 0.67, 0),
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (!finished) {
-        return;
-      }
-
-      setIsMounted(false);
-      onExitCompleteRef.current?.();
+    backdropProgress.value = withTiming(0, {
+      duration: metrics.backdropExitDuration,
+      easing: Easing.in(Easing.cubic),
     });
-  }, [backdropProgress, isMounted, sheetProgress, visible]);
+    sheetProgress.value = withTiming(0, {
+      duration: metrics.exitDuration,
+      easing: Easing.bezier(0.32, 0, 0.67, 0),
+    }, (finished) => {
+      if (finished) {
+        runOnJS(handleExitFinished)();
+      }
+    });
+  }, [backdropProgress, handleExitFinished, isMounted, sheetProgress, visible]);
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: backdropProgress.value,
+  }));
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: 0.9 + sheetProgress.value * 0.1,
+    transform: [
+      {
+        translateY: sheetTravel * (1 - sheetProgress.value),
+      },
+      {
+        scale: 0.985 + sheetProgress.value * 0.015,
+      },
+    ],
+  }));
 
   if (!isMounted) {
     return null;
@@ -186,32 +198,11 @@ function AnimatedSheetModal({
     setSheetTravel(getSheetAnimationMetrics(height).travel);
   };
 
-  const sheetAnimatedStyle = {
-    opacity: sheetProgress.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.9, 1],
-    }),
-    transform: [
-      {
-        translateY: sheetProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [sheetTravel, 0],
-        }),
-      },
-      {
-        scale: sheetProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.985, 1],
-        }),
-      },
-    ],
-  };
-
   return (
     <Modal animationType="none" onRequestClose={onClose} transparent visible>
       <GestureHandlerRootView style={modalGestureRootStyle.root}>
         {dimBackdrop ? (
-          <Animated.View style={[backdropStyle, { opacity: backdropProgress }]}>
+          <Animated.View style={[backdropStyle, backdropAnimatedStyle]}>
             <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
           </Animated.View>
         ) : (
@@ -844,7 +835,7 @@ export default function StatsScreen() {
             ))
           ) : (
             <View style={styles.emptyRecords}>
-              <Ionicons color={colors.mutedSubtle} name="calendar-clear-outline" size={32} />
+              <Ionicons color={colors.mutedSubtle} name="calendar-clear-outline" size={26} />
               <Text style={styles.emptyRecordsText}>{t('stats.noRecord')}</Text>
             </View>
           )}
@@ -992,15 +983,19 @@ function SwipeRecordRow({
   styles,
   t,
 }: SwipeRecordRowProps) {
-  const swipeableRef = useRef<Swipeable>(null);
-  const translateX = useRef(new Animated.Value(0)).current;
+  const translateX = useRef(new RNAnimated.Value(0)).current;
   const latestTranslateXRef = useRef(0);
-  const isWeb = Platform.OS === 'web';
+
+  const isHorizontalSwipe = useCallback(
+    (dx: number, dy: number) =>
+      !deleteActionHidden && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.25,
+    [deleteActionHidden],
+  );
 
   const snapTo = useCallback(
     (value: number) => {
       latestTranslateXRef.current = value;
-      Animated.spring(translateX, {
+      RNAnimated.spring(translateX, {
         bounciness: 0,
         speed: 18,
         toValue: value,
@@ -1013,8 +1008,10 @@ function SwipeRecordRow({
   const panResponder = useMemo(
     () =>
       PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          isHorizontalSwipe(gestureState.dx, gestureState.dy),
         onMoveShouldSetPanResponder: (_, gestureState) =>
-          Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+          isHorizontalSwipe(gestureState.dx, gestureState.dy),
         onPanResponderMove: (_, gestureState) => {
           const nextValue = Math.max(
             -deleteActionWidth,
@@ -1029,13 +1026,13 @@ function SwipeRecordRow({
         onPanResponderTerminate: () => {
           snapTo(latestTranslateXRef.current < -deleteActionWidth / 2 ? -deleteActionWidth : 0);
         },
+        onShouldBlockNativeResponder: () => true,
       }),
-    [snapTo, translateX],
+    [isHorizontalSwipe, snapTo, translateX],
   );
 
   useEffect(() => {
     if (deleteActionHidden) {
-      swipeableRef.current?.close();
       snapTo(0);
     }
   }, [deleteActionHidden, snapTo]);
@@ -1098,37 +1095,20 @@ function SwipeRecordRow({
     </>
   );
 
-  if (isWeb) {
-    return (
-      <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
-        {renderDeleteAction()}
-        <Animated.View
-          {...panResponder.panHandlers}
-          style={[
-            styles.recordPopupRow,
-            {
-              transform: [{ translateX }],
-            },
-          ]}
-        >
-          {renderRecordContent()}
-        </Animated.View>
-      </View>
-    );
-  }
-
   return (
     <View style={[styles.swipeRecordShell, deleteActionHidden && styles.swipeRecordShellHidden]}>
-      <Swipeable
-        enabled={!deleteActionHidden}
-        friction={2}
-        overshootRight={false}
-        ref={swipeableRef}
-        renderRightActions={renderDeleteAction}
-        rightThreshold={deleteActionWidth / 2}
+      {renderDeleteAction()}
+      <RNAnimated.View
+        {...panResponder.panHandlers}
+        style={[
+          styles.recordPopupRow,
+          {
+            transform: [{ translateX }],
+          },
+        ]}
       >
-        <View style={styles.recordPopupRow}>{renderRecordContent()}</View>
-      </Swipeable>
+        {renderRecordContent()}
+      </RNAnimated.View>
     </View>
   );
 }
@@ -1635,10 +1615,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '900',
   },
   emptyRecords: {
-    minHeight: 128,
+    minHeight: 78,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   emptyRecordsText: {
     color: colors.muted,

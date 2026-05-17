@@ -1,11 +1,11 @@
-import { memo, useRef } from 'react';
+import { memo } from 'react';
 import {
-  Animated,
   Pressable,
   type PressableProps,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 type AnimatedPressableProps = PressableProps & {
   containerStyle?: StyleProp<ViewStyle>;
@@ -24,43 +24,35 @@ function AnimatedPressableComponent({
   pressedTranslateY = 0,
   ...pressableProps
 }: AnimatedPressableProps) {
-  const pressProgress = useRef(new Animated.Value(0)).current;
+  const pressProgress = useSharedValue(0);
 
   const animateTo = (value: number) => {
-    Animated.spring(pressProgress, {
-      bounciness: 8,
-      speed: 24,
-      toValue: value,
-      useNativeDriver: true,
-    }).start();
+    pressProgress.value = withSpring(value, {
+      damping: 16,
+      stiffness: 420,
+      mass: 0.35,
+    });
   };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        scale: 1 + (pressedScale - 1) * pressProgress.value,
+      },
+      {
+        translateX: pressedTranslateX * pressProgress.value,
+      },
+      {
+        translateY: pressedTranslateY * pressProgress.value,
+      },
+    ],
+  }));
 
   return (
     <Animated.View
       style={[
         containerStyle,
-        {
-          transform: [
-            {
-              scale: pressProgress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, pressedScale],
-              }),
-            },
-            {
-              translateX: pressProgress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, pressedTranslateX],
-              }),
-            },
-            {
-              translateY: pressProgress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, pressedTranslateY],
-              }),
-            },
-          ],
-        },
+        animatedStyle,
       ]}
     >
       <Pressable
