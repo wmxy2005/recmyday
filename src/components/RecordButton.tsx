@@ -20,6 +20,7 @@ type RecordButtonProps = {
   disabled: boolean;
   hasRecord: boolean;
   iconName?: keyof typeof Ionicons.glyphMap;
+  iconLabel?: string;
   isRecording: boolean;
   label?: string;
   recordingStartedAt?: Date | null;
@@ -36,6 +37,7 @@ function RecordButtonComponent({
   disabled,
   hasRecord,
   iconName,
+  iconLabel,
   isRecording,
   label,
   recordingStartedAt,
@@ -162,12 +164,17 @@ function RecordButtonComponent({
             style={[styles.cancelProgressFill, cancelProgressStyle]}
           />
         ) : null}
-        <View style={styles.iconBadge}>
+        <View style={[styles.iconBadge, iconLabel && styles.iconBadgeWithLabel]}>
           <Ionicons
             color={colors.surface}
             name={iconName ?? (hasRecord ? 'refresh' : 'add')}
-            size={34}
+            size={iconLabel ? 34 : 34}
           />
+          {iconLabel ? (
+            <Text numberOfLines={1} style={styles.iconBadgeLabel}>
+              {iconLabel}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.textGroup}>
           <Text style={styles.label}>{label ?? (hasRecord ? 'Update' : 'Record')}</Text>
@@ -230,6 +237,18 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.2)',
       zIndex: 1,
+    },
+    iconBadgeWithLabel: {
+      gap: 2,
+      paddingHorizontal: spacing.xs,
+    },
+    iconBadgeLabel: {
+      color: colors.surface,
+      maxWidth: 52,
+      fontSize: 11,
+      fontWeight: '900',
+      lineHeight: 13,
+      textAlign: 'center',
     },
     textGroup: {
       alignItems: 'flex-start',

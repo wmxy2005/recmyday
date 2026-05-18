@@ -7,12 +7,14 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { type ComponentProps, useCallback, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -70,6 +72,13 @@ type PendingImport = {
 };
 
 const recentRecordOptions = [5, 10, 20, 30];
+const defaultRecordTypeGridBaseColumns = 3;
+const defaultRecordTypeGridBreakpoints = [
+  { minWidth: 1024, columns: 10 },
+  { minWidth: 768, columns: 8 },
+  { minWidth: 600, columns: 6 },
+  { minWidth: 360, columns: 4 },
+] as const;
 
 function downloadExportFileWeb(filename: string, content: string) {
   if (typeof document === 'undefined') {
@@ -154,11 +163,19 @@ function readImportFileWeb() {
   });
 }
 
+function getDefaultRecordTypeGridColumns(width: number) {
+  return (
+    defaultRecordTypeGridBreakpoints.find((breakpoint) => width >= breakpoint.minWidth)
+      ?.columns ?? defaultRecordTypeGridBaseColumns
+  );
+}
+
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const theme = useAppTheme();
   const { colors } = theme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
+  const { width: windowWidth } = useWindowDimensions();
   const db = useSQLiteContext();
   const [pendingStartMinutes, setPendingStartMinutes] = useState(0);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
@@ -171,6 +188,7 @@ export default function SettingsScreen() {
     useState<RecordTypeIconName>(fallbackRecordTypeIconName);
   const [recordTypeDrafts, setRecordTypeDrafts] = useState<Record<string, string>>({});
   const [expandedIconPickerId, setExpandedIconPickerId] = useState<string | null>(null);
+  const [defaultTypeGridWidth, setDefaultTypeGridWidth] = useState(0);
   const [isTransferring, setIsTransferring] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingSection | null>(null);
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
@@ -180,6 +198,14 @@ export default function SettingsScreen() {
     () => recordTypes.filter((recordType) => !recordType.is_builtin),
     [recordTypes],
   );
+  const defaultTypeGridColumns = getDefaultRecordTypeGridColumns(windowWidth);
+  const defaultTypeCardWidth =
+    defaultTypeGridWidth > 0
+      ? Math.floor(
+          (defaultTypeGridWidth - spacing.sm * (defaultTypeGridColumns - 1)) /
+            defaultTypeGridColumns,
+        )
+      : undefined;
 
   const loadSettings = useCallback(async () => {
     const [settings, nextRecordTypes] = await Promise.all([
@@ -533,6 +559,14 @@ export default function SettingsScreen() {
     setExpandedSection((current) => (current === section ? null : section));
   };
 
+  const handleDefaultTypeGridLayout = (event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+
+    setDefaultTypeGridWidth((current) =>
+      Math.abs(current - nextWidth) < 1 ? current : nextWidth,
+    );
+  };
+
   const renderIconPicker = (
     selectedIconName: RecordTypeIconName,
     onSelect: (iconName: RecordTypeIconName) => void,
@@ -793,42 +827,48 @@ export default function SettingsScreen() {
                   <Text style={[styles.optionTitle, { color: colors.primary }]}>
                     {t('settings.chooseDefaultRecordType')}
                   </Text>
-                  <View style={styles.typeCardGrid}>
+                  <View onLayout={handleDefaultTypeGridLayout} style={styles.typeCardGrid}>
                     {recordTypes.map((recordType) => {
-                    const isActive = defaultRecordTypeId === recordType.id;
-                    const iconName = getRecordTypeIconName(recordType);
+                      const isActive = defaultRecordTypeId === recordType.id;
+                      const iconName = getRecordTypeIconName(recordType);
 
-                    return (
-                      <AnimatedPressable
-                        accessibilityRole="radio"
-                        accessibilityState={{ checked: isActive }}
-                        key={recordType.id}
-                        onPress={() => {
-                          void handleDefaultRecordTypeChange(recordType.id);
-                        }}
-                        pressedScale={0.985}
-                        style={[styles.typeCard, isActive && styles.typeCardActive]}
-                      >
-                        <View style={[styles.typeCardIcon, isActive && styles.typeCardIconActive]}>
-                          <Ionicons
-                            color={isActive ? colors.surface : colors.textSoft}
-                            name={iconName}
-                            size={24}
-                          />
-                        </View>
-                        <Text
-                          numberOfLines={1}
-                          style={[styles.typeCardText, isActive && styles.typeCardTextActive]}
+                      return (
+                        <AnimatedPressable
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: isActive }}
+                          key={recordType.id}
+                          onPress={() => {
+                            void handleDefaultRecordTypeChange(recordType.id);
+                          }}
+                          pressedScale={0.985}
+                          style={[
+                            styles.typeCard,
+                            defaultTypeCardWidth !== undefined && { width: defaultTypeCardWidth },
+                            isActive && styles.typeCardActive,
+                          ]}
                         >
-                          {recordType.name}
-                        </Text>
-                        <View style={[styles.typeCardCheck, isActive && styles.radioTypeActive]}>
-                          {isActive ? (
-                            <Ionicons color={colors.surface} name="checkmark" size={16} />
-                          ) : null}
-                        </View>
-                      </AnimatedPressable>
-                    );
+                          <View
+                            style={[styles.typeCardIcon, isActive && styles.typeCardIconActive]}
+                          >
+                            <Ionicons
+                              color={isActive ? colors.surface : colors.textSoft}
+                              name={iconName}
+                              size={22}
+                            />
+                          </View>
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.typeCardText, isActive && styles.typeCardTextActive]}
+                          >
+                            {recordType.name}
+                          </Text>
+                          <View style={[styles.typeCardCheck, isActive && styles.radioTypeActive]}>
+                            {isActive ? (
+                              <Ionicons color={colors.surface} name="checkmark" size={14} />
+                            ) : null}
+                          </View>
+                        </AnimatedPressable>
+                      );
                     })}
                   </View>
                   <View style={styles.tipRow}>
@@ -1521,12 +1561,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     typeCard: {
       width: 86,
-      minHeight: 82,
+      minHeight: 74,
       alignItems: 'center',
       justifyContent: 'center',
-      gap: spacing.xs,
-      padding: spacing.sm,
-      borderRadius: radius.lg,
+      gap: 3,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.md,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -1541,8 +1582,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       elevation: 5,
     },
     typeCardIcon: {
-      width: 32,
-      height: 30,
+      width: 28,
+      height: 26,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1552,7 +1593,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     typeCardText: {
       maxWidth: '100%',
       color: colors.textSoft,
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '900',
     },
     typeCardTextActive: {
@@ -1560,11 +1601,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     typeCardCheck: {
       position: 'absolute',
-      top: 6,
-      right: 6,
-      width: 20,
-      height: 20,
-      borderRadius: 10,
+      top: 5,
+      right: 5,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'transparent',

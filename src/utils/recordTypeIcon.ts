@@ -8,13 +8,14 @@ export type RecordTypeIconName = ComponentProps<typeof Ionicons>['name'];
 
 export const fallbackRecordTypeIconName: RecordTypeIconName = 'pricetag-outline';
 export const mixedRecordTypeIconName: RecordTypeIconName = 'apps-outline';
+export const allRecordTypesFilterIconName: RecordTypeIconName = 'grid';
 
 export const builtInRecordTypeIcons: Record<string, RecordTypeIconName> = {
   work: 'briefcase',
   study: 'book',
   exercise: 'fitness',
   rest: 'cafe',
-  other: 'grid',
+  other: 'shapes-outline',
 };
 
 export const recordTypeIconOptions: RecordTypeIconName[] = [
@@ -23,6 +24,7 @@ export const recordTypeIconOptions: RecordTypeIconName[] = [
   'fitness',
   'cafe',
   'grid',
+  'shapes-outline',
   'pricetag-outline',
   'pencil',
   'laptop-outline',

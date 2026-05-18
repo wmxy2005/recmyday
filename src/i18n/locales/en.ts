@@ -48,6 +48,7 @@ export default {
     cancel: 'Cancel',
     createdAt: 'Created',
     lastUpdated: 'Updated',
+    updatedAt: 'Updated at {{time}}',
     saving: 'Saving',
     save: 'Save',
     invalidMinutesTitle: 'Invalid minutes',

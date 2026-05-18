@@ -48,6 +48,7 @@ export default {
     cancel: '取消',
     createdAt: '创建时间',
     lastUpdated: '最后更新',
+    updatedAt: '更新于 {{time}}',
     saving: '保存中',
     save: '保存',
     invalidMinutesTitle: '分钟数无效',

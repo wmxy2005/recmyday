@@ -38,7 +38,6 @@ import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { radius, spacing, useAppTheme } from '@/theme';
 import {
   formatDayLabel,
-  formatDayWithWeekdayLabel,
   formatDuration,
   formatWeekdayLabel,
   type RecordUnit,
@@ -369,16 +368,24 @@ export default function HomeScreen() {
   );
   const isTodayPanelSelected = Boolean(separateRecordEnabled && todayRecord && showRecordButton);
   const todayClockHands = useMemo(() => getClockHandsFromRecord(todayRecord), [todayRecord]);
-  const activeSeparateRecordTypeName = activeSeparateRecordTypeId
-    ? recordTypes.find((recordType) => recordType.id === activeSeparateRecordTypeId)?.name
+  const activeSeparateRecordType = activeSeparateRecordTypeId
+    ? recordTypes.find((recordType) => recordType.id === activeSeparateRecordTypeId)
     : null;
   const recordButtonLabel = separateRecordEnabled
     ? todayRecord
       ? t('home.updateRecord')
       : t('home.createRecord')
     : activeSeparateRecordStartedAt
-      ? activeSeparateRecordTypeName ?? t('home.endRecord')
+      ? t('home.endRecord')
       : t('home.startRecord');
+  const recordButtonIconName =
+    !separateRecordEnabled && activeSeparateRecordStartedAt && activeSeparateRecordType
+      ? getRecordTypeIconName(activeSeparateRecordType)
+      : !separateRecordEnabled
+        ? activeSeparateRecordStartedAt
+          ? 'stop'
+          : 'play'
+        : undefined;
   const recordButtonTone = separateRecordEnabled
     ? todayRecord
       ? 'primary'
@@ -430,11 +437,14 @@ export default function HomeScreen() {
             style={styles.todayPanel}
           >
             <View style={styles.todayCopy}>
-              <Text style={styles.cardLabel}>
-                {currentDayKey
-                  ? formatDayWithWeekdayLabel(currentDayKey)
-                  : t('home.today')}
-              </Text>
+              {currentDayKey ? (
+                <View style={styles.cardLabelRow}>
+                  <Text style={styles.cardLabel}>{formatDayLabel(currentDayKey)}</Text>
+                  <Text style={styles.todayPanelWeekday}>{formatWeekdayLabel(currentDayKey)}</Text>
+                </View>
+              ) : (
+                <Text style={[styles.cardLabel, styles.cardLabelStandalone]}>{t('home.today')}</Text>
+              )}
               {isLoading ? (
                 <ActivityIndicator color={colors.primary} style={styles.loadingIndicator} />
               ) : todayRecord ? (
@@ -521,13 +531,15 @@ export default function HomeScreen() {
                     <Text style={styles.recordDate}>{formatDayLabel(record.day_key)}</Text>
                     <Text style={styles.recordWeekday}>{formatWeekdayLabel(record.day_key)}</Text>
                   </View>
-                  <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
-                  <RecordTypeBadge
-                    compact
-                    iconName={getRecordIconName(record)}
-                    label={getRecordTypeName(record)}
-                    style={styles.recordTypeText}
-                  />
+                  <View style={styles.recordMetaRow}>
+                    <RecordTypeBadge
+                      compact
+                      iconName={getRecordIconName(record)}
+                      label={getRecordTypeName(record)}
+                      style={styles.recordTypeText}
+                    />
+                    <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
+                  </View>
                 </View>
                 <View style={styles.recordValueRow}>
                   {recordUnit === 'minutes' ? (
@@ -576,11 +588,10 @@ export default function HomeScreen() {
             animatedStyle={recordButtonAnimatedStyle}
             disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
             hasRecord={separateRecordEnabled && Boolean(todayRecord)}
-            iconName={
-              !separateRecordEnabled
-                ? activeSeparateRecordStartedAt
-                  ? 'stop'
-                  : 'play'
+            iconName={recordButtonIconName}
+            iconLabel={
+              !separateRecordEnabled && activeSeparateRecordStartedAt
+                ? activeSeparateRecordType?.name
                 : undefined
             }
             isRecording={isRecording}
@@ -724,24 +735,35 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   todayPanelTextRecorded: {
     color: colors.surface,
   },
-  todayPanelWeekdayRecorded: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    color: colors.surface,
-  },
-  todayPanelWeekdaySelected: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    color: colors.danger,
-  },
   todayCopy: {
     flex: 1,
     minWidth: 0,
     paddingRight: spacing.md,
   },
+  cardLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
   cardLabel: {
     color: colors.text,
     fontSize: 15,
     fontWeight: '900',
+  },
+  cardLabelStandalone: {
     marginBottom: spacing.sm,
+  },
+  todayPanelWeekday: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: colors.infoSoft,
+    color: colors.info,
+    fontSize: 11,
+    fontWeight: '800',
+    overflow: 'hidden',
   },
   loadingIndicator: {
     alignSelf: 'flex-start',
@@ -907,24 +929,35 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '900',
   },
   recordWeekday: {
-    color: colors.text,
-    fontSize: 15,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: colors.infoSoft,
+    color: colors.info,
+    fontSize: 11,
     fontWeight: '800',
+    overflow: 'hidden',
   },
   recordTime: {
     color: colors.textSoft,
     fontSize: 13,
     fontWeight: '700',
-    marginTop: 3,
+  },
+  recordMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: 5,
   },
   recordTypeText: {
-    alignSelf: 'flex-start',
-    marginTop: 5,
+    flexShrink: 0,
   },
   recordValueRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 3,
+    flexShrink: 0,
   },
   recordMinutes: {
     color: colors.info,

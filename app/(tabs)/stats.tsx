@@ -12,6 +12,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  type LayoutChangeEvent,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,7 +32,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
 import { ConfirmationDialog } from '@/components/ConfirmationDialog';
-import { RecordTypeBadge } from '@/components/RecordTypeBadge';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   type DayRecord,
@@ -62,14 +62,21 @@ import {
   getRecordStartEndMinutes,
 } from '@/utils/recordFormat';
 import {
+  allRecordTypesFilterIconName,
   getRecordIconName,
   getRecordTypeIconName,
-  mixedRecordTypeIconName,
 } from '@/utils/recordTypeIcon';
 
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
 const deleteActionWidth = 82;
+const filterTypeGridBaseColumns = 3;
+const filterTypeGridBreakpoints = [
+  { minWidth: 1024, columns: 10 },
+  { minWidth: 768, columns: 8 },
+  { minWidth: 600, columns: 6 },
+  { minWidth: 360, columns: 4 },
+] as const;
 let sessionSelectedRecordTypeIds: string[] | null = null;
 
 type EditorTimeSection = 'start' | 'end';
@@ -118,6 +125,13 @@ function getRecordTypeName(record: DayRecord) {
   return record.record_type_name || record.record_type_id;
 }
 
+function getFilterTypeGridColumns(width: number) {
+  return (
+    filterTypeGridBreakpoints.find((breakpoint) => width >= breakpoint.minWidth)?.columns ??
+    filterTypeGridBaseColumns
+  );
+}
+
 export default function StatsScreen() {
   const { t } = useTranslation();
   const { selectedAt, selectedDayKey: routeSelectedDayKey } = useLocalSearchParams<{
@@ -126,7 +140,7 @@ export default function StatsScreen() {
   }>();
   const theme = useAppTheme();
   const { colors } = theme;
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
   const [monthDate, setMonthDate] = useState(() => new Date());
@@ -144,6 +158,7 @@ export default function StatsScreen() {
   const [dayRecordsSheetVisible, setDayRecordsSheetVisible] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [recordEditorVisible, setRecordEditorVisible] = useState(false);
+  const [filterTypeGridWidth, setFilterTypeGridWidth] = useState(0);
   const [pendingDeleteRecordId, setPendingDeleteRecordId] = useState<number | null>(null);
   const [promptDialog, setPromptDialog] = useState<{ message: string; title: string } | null>(null);
   const [draftStartTime, setDraftStartTime] = useState('09:00');
@@ -153,6 +168,14 @@ export default function StatsScreen() {
     useState<EditorTimeSection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const hasLoadedRef = useRef(false);
+  const filterTypeGridColumns = getFilterTypeGridColumns(windowWidth);
+  const filterTypeCardWidth =
+    filterTypeGridWidth > 0
+      ? Math.floor(
+          (filterTypeGridWidth - spacing.sm * (filterTypeGridColumns - 1)) /
+            filterTypeGridColumns,
+        )
+      : undefined;
 
   useEffect(() => {
     if (!routeSelectedDayKey) {
@@ -402,6 +425,14 @@ export default function StatsScreen() {
   const handleClearRecordTypeFilter = () => {
     sessionSelectedRecordTypeIds = null;
     setSelectedRecordTypeIds(null);
+  };
+
+  const handleFilterTypeGridLayout = (event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+
+    setFilterTypeGridWidth((current) =>
+      Math.abs(current - nextWidth) < 1 ? current : nextWidth,
+    );
   };
 
   const handleSaveRecordEditor = async () => {
@@ -696,12 +727,16 @@ export default function StatsScreen() {
             <Ionicons color={colors.textSoft} name="close" size={24} />
           </AnimatedPressable>
         </View>
-        <View style={styles.filterCardGrid}>
+        <View onLayout={handleFilterTypeGridLayout} style={styles.filterCardGrid}>
           <AnimatedPressable
             accessibilityRole="button"
             onPress={handleClearRecordTypeFilter}
             pressedScale={0.985}
-            style={[styles.filterTypeCard, !isFilteringRecordTypes && styles.filterTypeCardActive]}
+            style={[
+              styles.filterTypeCard,
+              filterTypeCardWidth !== undefined && { width: filterTypeCardWidth },
+              !isFilteringRecordTypes && styles.filterTypeCardActive,
+            ]}
           >
             <View
               style={[
@@ -711,8 +746,8 @@ export default function StatsScreen() {
             >
               <Ionicons
                 color={!isFilteringRecordTypes ? colors.surface : colors.textSoft}
-                name={mixedRecordTypeIconName}
-                size={23}
+                name={allRecordTypesFilterIconName}
+                size={22}
               />
             </View>
             <Text
@@ -726,7 +761,7 @@ export default function StatsScreen() {
             </Text>
             <View style={[styles.filterTypeCheck, !isFilteringRecordTypes && styles.radioActive]}>
               {!isFilteringRecordTypes ? (
-                <Ionicons color={colors.surface} name="checkmark" size={16} />
+                <Ionicons color={colors.surface} name="checkmark" size={14} />
               ) : null}
             </View>
           </AnimatedPressable>
@@ -740,13 +775,17 @@ export default function StatsScreen() {
                 key={recordType.id}
                 onPress={() => handleToggleRecordTypeFilter(recordType.id)}
                 pressedScale={0.985}
-                style={[styles.filterTypeCard, isActive && styles.filterTypeCardActive]}
+                style={[
+                  styles.filterTypeCard,
+                  filterTypeCardWidth !== undefined && { width: filterTypeCardWidth },
+                  isActive && styles.filterTypeCardActive,
+                ]}
               >
                 <View style={[styles.filterTypeIcon, isActive && styles.filterTypeIconActive]}>
                   <Ionicons
                     color={isActive ? colors.surface : colors.textSoft}
                     name={getRecordTypeIconName(recordType)}
-                    size={23}
+                    size={22}
                   />
                 </View>
                 <Text
@@ -757,7 +796,7 @@ export default function StatsScreen() {
                 </Text>
                 <View style={[styles.filterTypeCheck, isActive && styles.radioActive]}>
                   {isActive ? (
-                    <Ionicons color={colors.surface} name="checkmark" size={16} />
+                    <Ionicons color={colors.surface} name="checkmark" size={14} />
                   ) : null}
                 </View>
               </AnimatedPressable>
@@ -1062,26 +1101,29 @@ function SwipeRecordRow({
     );
   };
 
+  const recordIconName = getRecordIconName(record);
+  const recordTypeName = getRecordTypeName(record);
+
   const renderRecordContent = () => (
     <>
       <View
         style={[
-          styles.recordPopupIcon,
+          styles.recordPopupType,
           { backgroundColor: getRecordMinutesColor(record.minutes_since_start) },
         ]}
       >
-        <Ionicons color={colors.surface} name="time-outline" size={22} />
+        <Ionicons color={colors.surface} name={recordIconName} size={22} />
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordPopupTypeText}>
+          {recordTypeName}
+        </Text>
       </View>
       <View style={styles.recordPopupCopy}>
         <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
         <View style={styles.recordPopupMetaRow}>
-          <RecordTypeBadge
-            compact
-            iconName={getRecordIconName(record)}
-            label={getRecordTypeName(record)}
-          />
           <Text style={styles.recordPopupMeta}>
-            {formatRecordDateTime(record.updated_at, t('stats.noData'))}
+            {t('stats.updatedAt', {
+              time: formatRecordDateTime(record.updated_at, t('stats.noData')),
+            })}
           </Text>
         </View>
       </View>
@@ -1369,12 +1411,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   filterTypeCard: {
     width: 96,
-    minHeight: 86,
+    minHeight: 74,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    padding: spacing.sm,
-    borderRadius: radius.lg,
+    gap: 3,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1389,8 +1432,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     elevation: 5,
   },
   filterTypeIcon: {
-    width: 32,
-    height: 30,
+    width: 28,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1408,11 +1451,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   filterTypeCheck: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    top: 5,
+    right: 5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -1566,7 +1609,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '900',
   },
   recordPopupRow: {
-    minHeight: 78,
+    minHeight: 88,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
@@ -1575,13 +1618,24 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     borderRadius: radius.lg - 1,
     backgroundColor: colors.surfaceElevated,
   },
-  recordPopupIcon: {
-    width: 44,
-    height: 44,
+  recordPopupType: {
+    width: 58,
+    minHeight: 56,
+    paddingHorizontal: 5,
+    paddingVertical: 6,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 2,
     flexShrink: 0,
+  },
+  recordPopupTypeText: {
+    width: '100%',
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: '900',
+    lineHeight: 14,
+    textAlign: 'center',
   },
   recordPopupCopy: {
     flex: 1,
