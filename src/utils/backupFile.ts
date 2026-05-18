@@ -1,15 +1,18 @@
-import type { ImportDayRecord } from '@/data/database';
+import type { ImportDayRecord, ImportRecordType } from '@/data/database';
+import { defaultRecordTypeId } from '@/data/database';
 
-const exportSchemaVersion = 1;
+const exportSchemaVersion = 2;
+const supportedExportSchemaVersions = [1, 2] as const;
 const exportAppId = 'recmyday';
 export const maxImportFileBytes = 2 * 1024 * 1024;
 export const maxImportRecordCount = 10000;
 
 export type DayRecordsExportFile = {
   app: typeof exportAppId;
-  schemaVersion: typeof exportSchemaVersion;
+  schemaVersion: (typeof supportedExportSchemaVersions)[number];
   exportedAt: string;
   recordCount: number;
+  recordTypes?: ImportRecordType[];
   records: ImportDayRecord[];
   checksum: string;
 };
@@ -52,6 +55,7 @@ function isImportDayRecord(value: unknown): value is ImportDayRecord {
     Number.isInteger(minutesSinceStart) &&
     typeof minutesSinceStart === 'number' &&
     minutesSinceStart >= 0 &&
+    (record.record_type_id === undefined || typeof record.record_type_id === 'string') &&
     typeof record.created_at === 'string' &&
     record.created_at.length > 0 &&
     typeof record.updated_at === 'string' &&
@@ -59,12 +63,35 @@ function isImportDayRecord(value: unknown): value is ImportDayRecord {
   );
 }
 
-export function createExportFile(records: ImportDayRecord[], exportedAt: string) {
+function isImportRecordType(value: unknown): value is ImportRecordType {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const recordType = value as Partial<ImportRecordType>;
+
+  return (
+    typeof recordType.id === 'string' &&
+    recordType.id.length > 0 &&
+    typeof recordType.name === 'string' &&
+    recordType.name.length > 0 &&
+    typeof recordType.sort_order === 'number' &&
+    Number.isInteger(recordType.sort_order) &&
+    (recordType.is_builtin === 0 || recordType.is_builtin === 1)
+  );
+}
+
+export function createExportFile(
+  records: ImportDayRecord[],
+  exportedAt: string,
+  recordTypes: ImportRecordType[] = [],
+) {
   const payload: Omit<DayRecordsExportFile, 'checksum'> = {
     app: exportAppId,
     schemaVersion: exportSchemaVersion,
     exportedAt,
     recordCount: records.length,
+    recordTypes,
     records,
   };
 
@@ -75,6 +102,10 @@ export function createExportFile(records: ImportDayRecord[], exportedAt: string)
 }
 
 export function parseExportFile(text: string) {
+  return parseExportFileData(text).records;
+}
+
+export function parseExportFileData(text: string) {
   if (new Blob([text]).size > maxImportFileBytes) {
     throw new Error('Export file is too large');
   }
@@ -84,9 +115,14 @@ export function parseExportFile(text: string) {
 
   if (
     parsed.app !== exportAppId ||
-    parsed.schemaVersion !== exportSchemaVersion ||
+    !supportedExportSchemaVersions.includes(
+      parsed.schemaVersion as (typeof supportedExportSchemaVersions)[number],
+    ) ||
     !isValidIsoDate(parsed.exportedAt) ||
     !Array.isArray(parsed.records) ||
+    (parsed.recordTypes !== undefined &&
+      (!Array.isArray(parsed.recordTypes) ||
+        parsed.recordTypes.some((recordType) => !isImportRecordType(recordType)))) ||
     parsed.records.length > maxImportRecordCount ||
     parsed.records.some((record) => !isImportDayRecord(record)) ||
     parsed.recordCount !== parsed.records.length ||
@@ -96,5 +132,11 @@ export function parseExportFile(text: string) {
     throw new Error('Invalid export file');
   }
 
-  return parsed.records;
+  return {
+    records: parsed.records.map((record) => ({
+      ...record,
+      record_type_id: record.record_type_id || defaultRecordTypeId,
+    })),
+    recordTypes: parsed.recordTypes ?? [],
+  };
 }

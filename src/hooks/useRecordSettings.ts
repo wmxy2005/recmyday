@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { useCallback, useState } from 'react';
 
 import {
+  getDefaultRecordTypeId,
   getRecentRecordLimit,
   getRecordUnit,
   getSeparateRecordEnabled,
@@ -10,6 +11,7 @@ import {
 import type { RecordUnit } from '@/utils/date';
 
 export type RecordSettings = {
+  defaultRecordTypeId: string;
   recentRecordLimit: number;
   recordUnit: RecordUnit;
   separateRecordEnabled: boolean;
@@ -17,6 +19,7 @@ export type RecordSettings = {
 };
 
 export const defaultRecordSettings: RecordSettings = {
+  defaultRecordTypeId: 'work',
   recentRecordLimit: 5,
   recordUnit: 'minutes',
   separateRecordEnabled: false,
@@ -24,15 +27,23 @@ export const defaultRecordSettings: RecordSettings = {
 };
 
 export async function readRecordSettings(db: SQLiteDatabase): Promise<RecordSettings> {
-  const [startTimeMinutes, recordUnit, recentRecordLimit, separateRecordEnabled] =
+  const [
+    startTimeMinutes,
+    recordUnit,
+    recentRecordLimit,
+    separateRecordEnabled,
+    defaultRecordTypeId,
+  ] =
     await Promise.all([
       getStartTimeMinutes(db),
       getRecordUnit(db),
       getRecentRecordLimit(db),
       getSeparateRecordEnabled(db),
+      getDefaultRecordTypeId(db),
     ]);
 
   return {
+    defaultRecordTypeId,
     recentRecordLimit,
     recordUnit,
     separateRecordEnabled,

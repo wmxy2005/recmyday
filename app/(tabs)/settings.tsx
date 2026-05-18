@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -20,26 +21,45 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { ConfirmationDialog } from '@/components/ConfirmationDialog';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
+  createRecordType,
+  deleteRecordType,
   getAllDayRecords,
+  getRecordTypes,
   replaceAllDayRecords,
+  reorderRecordType,
+  setDefaultRecordTypeId as saveDefaultRecordTypeId,
   setRecentRecordLimit as saveRecentRecordLimit,
   setRecordUnit as saveRecordUnit,
   setSeparateRecordEnabled as saveSeparateRecordEnabled,
   setStartTimeMinutes,
+  updateRecordTypeName,
   type ImportDayRecord,
+  type ImportRecordType,
+  type RecordType,
 } from '@/data/database';
 import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { cardVariants, componentSizes, radius, spacing, typography, useAppTheme } from '@/theme';
-import { createExportFile, maxImportFileBytes, parseExportFile } from '@/utils/backupFile';
+import { createExportFile, maxImportFileBytes, parseExportFileData } from '@/utils/backupFile';
 import { formatTimeFromMinutes, type RecordUnit } from '@/utils/date';
 
-type SettingSection = 'startTime' | 'recordUnit' | 'recentRecords' | 'separateRecord';
+type SettingSection =
+  | 'startTime'
+  | 'recordUnit'
+  | 'recentRecords'
+  | 'separateRecord'
+  | 'defaultRecordType'
+  | 'recordTypes';
 
 type PromptDialog = {
   iconName: ComponentProps<typeof Ionicons>['name'];
   message: string;
   title: string;
   variant?: 'danger' | 'primary' | 'success';
+};
+
+type PendingImport = {
+  records: ImportDayRecord[];
+  recordTypes: ImportRecordType[];
 };
 
 const recentRecordOptions = [5, 10, 20, 30];
@@ -137,19 +157,34 @@ export default function SettingsScreen() {
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [recentRecordLimit, setRecentRecordLimit] = useState('5');
   const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
+  const [recordTypes, setRecordTypes] = useState<RecordType[]>([]);
+  const [defaultRecordTypeId, setDefaultRecordTypeId] = useState('work');
+  const [newRecordTypeName, setNewRecordTypeName] = useState('');
+  const [recordTypeDrafts, setRecordTypeDrafts] = useState<Record<string, string>>({});
   const [isTransferring, setIsTransferring] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingSection | null>(null);
-  const [pendingImportRecords, setPendingImportRecords] = useState<ImportDayRecord[] | null>(null);
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [promptDialog, setPromptDialog] = useState<PromptDialog | null>(null);
   const startMinutesSaveIdRef = useRef(0);
 
   const loadSettings = useCallback(async () => {
-    const settings = await readRecordSettings(db);
+    const [settings, nextRecordTypes] = await Promise.all([
+      readRecordSettings(db),
+      getRecordTypes(db),
+    ]);
 
     setPendingStartMinutes(settings.startTimeMinutes);
     setRecordUnit(settings.recordUnit);
     setRecentRecordLimit(String(settings.recentRecordLimit));
     setSeparateRecordEnabled(settings.separateRecordEnabled);
+    setDefaultRecordTypeId(settings.defaultRecordTypeId);
+    setRecordTypes(nextRecordTypes);
+    setRecordTypeDrafts(
+      nextRecordTypes.reduce<Record<string, string>>((drafts, type) => {
+        drafts[type.id] = type.name;
+        return drafts;
+      }, {}),
+    );
   }, [db]);
 
   useFocusEffect(
@@ -212,14 +247,104 @@ export default function SettingsScreen() {
     setRecentRecordLimit(String(nextRecentRecordLimit));
   };
 
+  const reloadRecordTypes = async () => {
+    const [settings, nextRecordTypes] = await Promise.all([
+      readRecordSettings(db),
+      getRecordTypes(db),
+    ]);
+
+    setDefaultRecordTypeId(settings.defaultRecordTypeId);
+    setRecordTypes(nextRecordTypes);
+    setRecordTypeDrafts(
+      nextRecordTypes.reduce<Record<string, string>>((drafts, type) => {
+        drafts[type.id] = type.name;
+        return drafts;
+      }, {}),
+    );
+  };
+
+  const handleDefaultRecordTypeChange = async (recordTypeId: string) => {
+    setDefaultRecordTypeId(recordTypeId);
+    const nextId = await saveDefaultRecordTypeId(db, recordTypeId);
+    setDefaultRecordTypeId(nextId);
+  };
+
+  const handleCreateRecordType = async () => {
+    const name = newRecordTypeName.trim();
+
+    if (!name) {
+      setPromptDialog({
+        iconName: 'alert-circle-outline',
+        title: t('settings.invalidRecordTypeTitle'),
+        message: t('settings.invalidRecordTypeMessage'),
+        variant: 'danger',
+      });
+      return;
+    }
+
+    await createRecordType(db, name);
+    setNewRecordTypeName('');
+    await reloadRecordTypes();
+  };
+
+  const handleSaveRecordTypeName = async (recordType: RecordType) => {
+    const name = (recordTypeDrafts[recordType.id] ?? '').trim();
+
+    if (recordType.is_builtin || name === recordType.name) {
+      return;
+    }
+
+    if (!name) {
+      setRecordTypeDrafts((drafts) => ({ ...drafts, [recordType.id]: recordType.name }));
+      setPromptDialog({
+        iconName: 'alert-circle-outline',
+        title: t('settings.invalidRecordTypeTitle'),
+        message: t('settings.invalidRecordTypeMessage'),
+        variant: 'danger',
+      });
+      return;
+    }
+
+    await updateRecordTypeName(db, recordType.id, name);
+    await reloadRecordTypes();
+  };
+
+  const handleDeleteRecordType = async (recordType: RecordType) => {
+    const didDelete = await deleteRecordType(db, recordType.id);
+
+    if (!didDelete) {
+      setPromptDialog({
+        iconName: 'lock-closed-outline',
+        title: t('settings.deleteRecordTypeBlockedTitle'),
+        message: t('settings.deleteRecordTypeBlockedMessage'),
+        variant: 'danger',
+      });
+      return;
+    }
+
+    await reloadRecordTypes();
+  };
+
+  const handleMoveRecordType = async (recordType: RecordType, direction: -1 | 1) => {
+    await reorderRecordType(db, recordType.id, direction);
+    await reloadRecordTypes();
+  };
+
   const handleExport = async () => {
     try {
       setIsTransferring(true);
       const records = await getAllDayRecords(db);
+      const exportedRecordTypes = (await getRecordTypes(db)).map((recordType) => ({
+        id: recordType.id,
+        is_builtin: recordType.is_builtin,
+        name: recordType.name,
+        sort_order: recordType.sort_order,
+      }));
       const exportedAt = new Date().toISOString();
       const exportFile = createExportFile(
-        records.map(({ id, ...record }) => record),
+        records.map(({ id, record_type_name, ...record }) => record),
         exportedAt,
+        exportedRecordTypes,
       );
       const filename = `recmyday-records-${exportedAt.slice(0, 10)}.json`;
       const fileContent = JSON.stringify(exportFile, null, 2);
@@ -277,10 +402,10 @@ export default function SettingsScreen() {
     }
   };
 
-  const executeImport = async (records: ImportDayRecord[]) => {
+  const executeImport = async ({ records, recordTypes }: PendingImport) => {
     try {
       setIsTransferring(true);
-      await replaceAllDayRecords(db, records);
+      await replaceAllDayRecords(db, records, recordTypes);
       setPromptDialog({
         iconName: 'cloud-upload-outline',
         title: t('settings.importSuccessTitle'),
@@ -303,22 +428,22 @@ export default function SettingsScreen() {
     }
   };
 
-  const importRecords = (records: ImportDayRecord[]) => {
-    setPendingImportRecords(records);
+  const importRecords = (pending: PendingImport) => {
+    setPendingImport(pending);
   };
 
   const handleCancelImport = () => {
-    setPendingImportRecords(null);
+    setPendingImport(null);
   };
 
   const handleConfirmImport = () => {
-    if (!pendingImportRecords) {
+    if (!pendingImport) {
       return;
     }
 
-    const records = pendingImportRecords;
-    setPendingImportRecords(null);
-    void executeImport(records);
+    const nextPendingImport = pendingImport;
+    setPendingImport(null);
+    void executeImport(nextPendingImport);
   };
 
   const handleImport = async () => {
@@ -354,10 +479,10 @@ export default function SettingsScreen() {
       }
 
       setIsTransferring(true);
-      const records = parseExportFile(text);
+      const parsedFile = parseExportFileData(text);
 
       setIsTransferring(false);
-      importRecords(records);
+      importRecords(parsedFile);
     } catch (error) {
       if (__DEV__) {
         console.warn('Import file rejected', error);
@@ -578,6 +703,231 @@ export default function SettingsScreen() {
             <View
               style={[
                 styles.optionCard,
+                expandedSection === 'defaultRecordType' && styles.optionCardTypeActive,
+              ]}
+            >
+              <AnimatedPressable
+                accessibilityRole="button"
+                onPress={() => handleToggleSection('defaultRecordType')}
+                pressedScale={0.985}
+                style={styles.settingRow}
+              >
+                <View style={[styles.iconTile, styles.typeTile]}>
+                  <Ionicons color={colors.primary} name="bookmark-outline" size={25} />
+                </View>
+                <Text
+                  style={[
+                    styles.rowLabel,
+                    expandedSection === 'defaultRecordType' && { color: colors.primary },
+                  ]}
+                >
+                  {t('settings.defaultRecordType')}
+                </Text>
+                <Text
+                  style={[
+                    styles.rowValue,
+                    expandedSection === 'defaultRecordType' && { color: colors.primary },
+                  ]}
+                >
+                  {recordTypes.find((type) => type.id === defaultRecordTypeId)?.name ??
+                    t('settings.noData')}
+                </Text>
+                {renderChevron(
+                  'defaultRecordType',
+                  expandedSection === 'defaultRecordType' ? colors.primary : colors.mutedSubtle,
+                )}
+              </AnimatedPressable>
+
+              {expandedSection === 'defaultRecordType' ? (
+                <View style={styles.optionBody}>
+                  <Text style={[styles.optionTitle, { color: colors.primary }]}>
+                    {t('settings.chooseDefaultRecordType')}
+                  </Text>
+                  {recordTypes.map((recordType) => {
+                    const isActive = defaultRecordTypeId === recordType.id;
+
+                    return (
+                      <AnimatedPressable
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: isActive }}
+                        key={recordType.id}
+                        onPress={() => {
+                          void handleDefaultRecordTypeChange(recordType.id);
+                        }}
+                        pressedScale={0.985}
+                        style={[styles.limitRow, isActive && styles.typeChoiceActive]}
+                      >
+                        <Text style={[styles.limitText, isActive && styles.typeChoiceTextActive]}>
+                          {recordType.name}
+                        </Text>
+                        <View style={[styles.radio, isActive && styles.radioTypeActive]}>
+                          {isActive ? (
+                            <Ionicons color={colors.surface} name="checkmark" size={16} />
+                          ) : null}
+                        </View>
+                      </AnimatedPressable>
+                    );
+                  })}
+                  <View style={styles.tipRow}>
+                    <Ionicons color={colors.primary} name="information-circle-outline" size={17} />
+                    <Text style={[styles.tipText, { color: colors.primary }]}>
+                      {t('settings.defaultRecordTypeDescription')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            <View
+              style={[
+                styles.optionCard,
+                expandedSection === 'recordTypes' && styles.optionCardTypeActive,
+              ]}
+            >
+              <AnimatedPressable
+                accessibilityRole="button"
+                onPress={() => handleToggleSection('recordTypes')}
+                pressedScale={0.985}
+                style={styles.settingRow}
+              >
+                <View style={[styles.iconTile, styles.typeTile]}>
+                  <Ionicons color={colors.primary} name="pricetags-outline" size={25} />
+                </View>
+                <Text
+                  style={[
+                    styles.rowLabel,
+                    expandedSection === 'recordTypes' && { color: colors.primary },
+                  ]}
+                >
+                  {t('settings.recordTypes')}
+                </Text>
+                <Text
+                  style={[
+                    styles.rowValue,
+                    expandedSection === 'recordTypes' && { color: colors.primary },
+                  ]}
+                >
+                  {t('settings.recordsCount', { count: recordTypes.length })}
+                </Text>
+                {renderChevron(
+                  'recordTypes',
+                  expandedSection === 'recordTypes' ? colors.primary : colors.mutedSubtle,
+                )}
+              </AnimatedPressable>
+
+              {expandedSection === 'recordTypes' ? (
+                <View style={styles.optionBody}>
+                  <Text style={[styles.optionTitle, { color: colors.primary }]}>
+                    {t('settings.manageRecordTypes')}
+                  </Text>
+                  <View style={styles.typeCreateRow}>
+                    <TextInput
+                      onChangeText={setNewRecordTypeName}
+                      onSubmitEditing={handleCreateRecordType}
+                      placeholder={t('settings.newRecordTypePlaceholder')}
+                      placeholderTextColor={colors.mutedSubtle}
+                      returnKeyType="done"
+                      style={styles.typeInput}
+                      value={newRecordTypeName}
+                    />
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      onPress={handleCreateRecordType}
+                      pressedScale={0.94}
+                      style={styles.typeIconButton}
+                    >
+                      <Ionicons color={colors.surface} name="add" size={24} />
+                    </AnimatedPressable>
+                  </View>
+                  {recordTypes.map((recordType) => {
+                    const isBuiltIn = Boolean(recordType.is_builtin);
+                    const isDefault = recordType.id === defaultRecordTypeId;
+
+                    return (
+                      <View key={recordType.id} style={styles.typeManageRow}>
+                        <View style={styles.typeManageMain}>
+                          {isBuiltIn ? (
+                            <Text style={styles.typeLockedName}>{recordType.name}</Text>
+                          ) : (
+                            <TextInput
+                              onBlur={() => {
+                                void handleSaveRecordTypeName(recordType);
+                              }}
+                              onChangeText={(value) =>
+                                setRecordTypeDrafts((drafts) => ({
+                                  ...drafts,
+                                  [recordType.id]: value,
+                                }))
+                              }
+                              onSubmitEditing={() => {
+                                void handleSaveRecordTypeName(recordType);
+                              }}
+                              style={styles.typeNameInput}
+                              value={recordTypeDrafts[recordType.id] ?? recordType.name}
+                            />
+                          )}
+                          <Text style={styles.typeMeta}>
+                            {isBuiltIn
+                              ? t('settings.builtInRecordType')
+                              : isDefault
+                                ? t('settings.defaultRecordType')
+                                : t('settings.customRecordType')}
+                          </Text>
+                        </View>
+                        <View style={styles.typeActions}>
+                          {isBuiltIn ? (
+                            <Ionicons color={colors.mutedSubtle} name="lock-closed" size={18} />
+                          ) : (
+                            <>
+                              <AnimatedPressable
+                                accessibilityRole="button"
+                                onPress={() => {
+                                  void handleMoveRecordType(recordType, -1);
+                                }}
+                                pressedScale={0.9}
+                                style={styles.typeSmallButton}
+                              >
+                                <Ionicons color={colors.textSoft} name="chevron-up" size={18} />
+                              </AnimatedPressable>
+                              <AnimatedPressable
+                                accessibilityRole="button"
+                                onPress={() => {
+                                  void handleMoveRecordType(recordType, 1);
+                                }}
+                                pressedScale={0.9}
+                                style={styles.typeSmallButton}
+                              >
+                                <Ionicons color={colors.textSoft} name="chevron-down" size={18} />
+                              </AnimatedPressable>
+                              <AnimatedPressable
+                                accessibilityRole="button"
+                                onPress={() => {
+                                  void handleDeleteRecordType(recordType);
+                                }}
+                                pressedScale={0.9}
+                                style={[styles.typeSmallButton, styles.typeDeleteButton]}
+                              >
+                                <Ionicons color={colors.danger} name="trash-outline" size={18} />
+                              </AnimatedPressable>
+                            </>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                  <View style={styles.tipRow}>
+                    <Ionicons color={colors.primary} name="lock-closed-outline" size={17} />
+                    <Text style={[styles.tipText, { color: colors.primary }]}>
+                      {t('settings.recordTypesDescription')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            <View
+              style={[
+                styles.optionCard,
                 expandedSection === 'recordUnit' && styles.optionCardUnitActive,
               ]}
             >
@@ -744,12 +1094,12 @@ export default function SettingsScreen() {
         cancelLabel={t('settings.importCancel')}
         confirmLabel={t('settings.importConfirmAction')}
         iconName="cloud-upload-outline"
-        message={t('settings.importConfirmMessage', { count: pendingImportRecords?.length ?? 0 })}
+        message={t('settings.importConfirmMessage', { count: pendingImport?.records.length ?? 0 })}
         onCancel={handleCancelImport}
         onConfirm={handleConfirmImport}
         title={t('settings.importConfirmTitle')}
         variant="primary"
-        visible={pendingImportRecords !== null}
+        visible={pendingImport !== null}
       />
       <ConfirmationDialog
         confirmLabel={t('settings.promptOk')}
@@ -849,6 +1199,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: cardVariants.settingsSeparate.activeBorder,
       backgroundColor: cardVariants.settingsSeparate.activeBackground,
     },
+    optionCardTypeActive: {
+      borderColor: cardVariants.settingsTime.activeBorder,
+      backgroundColor: cardVariants.settingsTime.activeBackground,
+    },
     settingRow: {
       minHeight: 72,
       flexDirection: 'row',
@@ -875,6 +1229,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     separateTile: {
       backgroundColor: colors.dangerSoft,
+    },
+    typeTile: {
+      backgroundColor: colors.primarySoft,
     },
     rowLabel: {
       flex: 1,
@@ -940,6 +1297,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: colors.danger,
       borderColor: colors.danger,
     },
+    radioTypeActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
     choiceCopy: {
       flex: 1,
       minWidth: 0,
@@ -978,6 +1339,92 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     limitTextActive: {
       color: colors.highlight,
       fontWeight: '900',
+    },
+    typeChoiceActive: {
+      backgroundColor: colors.primarySoft,
+      borderColor: cardVariants.settingsTime.activeBorder,
+    },
+    typeChoiceTextActive: {
+      color: colors.primary,
+      fontWeight: '900',
+    },
+    typeCreateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    typeInput: {
+      flex: 1,
+      minWidth: 0,
+      height: 50,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    typeIconButton: {
+      width: 50,
+      height: 50,
+      borderRadius: radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary,
+    },
+    typeManageRow: {
+      minHeight: 66,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: spacing.sm,
+    },
+    typeManageMain: {
+      flex: 1,
+      minWidth: 0,
+      gap: 2,
+    },
+    typeLockedName: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '900',
+    },
+    typeNameInput: {
+      minHeight: 32,
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '900',
+      padding: 0,
+    },
+    typeMeta: {
+      color: colors.muted,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    typeActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    typeSmallButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceAlt,
+    },
+    typeDeleteButton: {
+      backgroundColor: colors.dangerSoft,
     },
     tipRow: {
       flexDirection: 'row',

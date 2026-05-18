@@ -20,13 +20,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
 import { RecordButton } from '@/components/RecordButton';
 import {
   type DayRecord,
+  type RecordType,
   getCurrentDayKey,
   getCurrentDayRecord,
   getDayRecordsByDayKey,
   getRecentRecords,
+  getRecordTypes,
   insertSeparateRecord,
   upsertCurrentRecord,
 } from '@/data/database';
@@ -69,6 +72,10 @@ function getClockHandsFromRecord(record: DayRecord | null) {
   };
 }
 
+function getRecordTypeName(record: DayRecord) {
+  return record.record_type_name || record.record_type_id;
+}
+
 export default function HomeScreen() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -80,13 +87,17 @@ export default function HomeScreen() {
   const [todayRecord, setTodayRecord] = useState<DayRecord | null>(null);
   const [todayRecords, setTodayRecords] = useState<DayRecord[]>([]);
   const [records, setRecords] = useState<DayRecord[]>([]);
+  const [recordTypes, setRecordTypes] = useState<RecordType[]>([]);
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [recentRecordLimit, setRecentRecordLimit] = useState(5);
   const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
+  const [defaultRecordTypeId, setDefaultRecordTypeId] = useState('work');
   const [activeSeparateRecordStartedAt, setActiveSeparateRecordStartedAt] = useState<Date | null>(
     null,
   );
+  const [activeSeparateRecordTypeId, setActiveSeparateRecordTypeId] = useState<string | null>(null);
+  const [recordTypePickerVisible, setRecordTypePickerVisible] = useState(false);
   const [isBeforeStartTime, setIsBeforeStartTime] = useState(() => getIsBeforeStartTime(0));
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
@@ -108,10 +119,11 @@ export default function HomeScreen() {
     }
 
     const settings = await readRecordSettings(db);
-    const [dayKey, currentRecord, recentRecords] = await Promise.all([
+    const [dayKey, currentRecord, recentRecords, nextRecordTypes] = await Promise.all([
       getCurrentDayKey(db),
       getCurrentDayRecord(db),
       getRecentRecords(db, settings.recentRecordLimit),
+      getRecordTypes(db),
     ]);
     const currentDayRecords = await getDayRecordsByDayKey(db, dayKey);
 
@@ -119,8 +131,12 @@ export default function HomeScreen() {
     setRecordUnit(settings.recordUnit);
     setRecentRecordLimit(settings.recentRecordLimit);
     setSeparateRecordEnabled(settings.separateRecordEnabled);
+    setDefaultRecordTypeId(settings.defaultRecordTypeId);
+    setRecordTypes(nextRecordTypes);
     if (settings.separateRecordEnabled) {
       setActiveSeparateRecordStartedAt(null);
+      setActiveSeparateRecordTypeId(null);
+      setRecordTypePickerVisible(false);
     }
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
@@ -177,6 +193,18 @@ export default function HomeScreen() {
       ? formatRecordRange(todayRecord, startTimeMinutes)
       : ''
     : formatRecordsRange(todayRecords, startTimeMinutes);
+  const todayTypeLabel = useMemo(() => {
+    if (!todayRecord) {
+      return '';
+    }
+
+    if (separateRecordEnabled) {
+      return getRecordTypeName(todayRecord);
+    }
+
+    const typeNames = Array.from(new Set(todayRecords.map(getRecordTypeName)));
+    return typeNames.length > 1 ? t('recordTypes.mixed') : typeNames[0] ?? '';
+  }, [separateRecordEnabled, t, todayRecord, todayRecords]);
 
   const shouldShowRecordButtonArea =
     !isLoading &&
@@ -239,17 +267,29 @@ export default function HomeScreen() {
       return;
     }
 
+    if (!separateRecordEnabled && !activeSeparateRecordStartedAt) {
+      setRecordTypePickerVisible(true);
+      return;
+    }
+
     setIsRecording(true);
 
     try {
       if (!separateRecordEnabled) {
-        if (!activeSeparateRecordStartedAt) {
-          setActiveSeparateRecordStartedAt(new Date());
+        const startedAt = activeSeparateRecordStartedAt;
+
+        if (!startedAt) {
           return;
         }
 
-        await insertSeparateRecord(db, activeSeparateRecordStartedAt);
+        await insertSeparateRecord(
+          db,
+          startedAt,
+          new Date(),
+          activeSeparateRecordTypeId ?? undefined,
+        );
         setActiveSeparateRecordStartedAt(null);
+        setActiveSeparateRecordTypeId(null);
         await loadData();
         return;
       }
@@ -268,6 +308,13 @@ export default function HomeScreen() {
 
   const handleCancelActiveRecord = () => {
     setActiveSeparateRecordStartedAt(null);
+    setActiveSeparateRecordTypeId(null);
+  };
+
+  const handleStartSeparateRecordWithType = (recordTypeId: string) => {
+    setActiveSeparateRecordStartedAt(new Date());
+    setActiveSeparateRecordTypeId(recordTypeId);
+    setRecordTypePickerVisible(false);
   };
 
   const handleToggleRecordButton = () => {
@@ -300,12 +347,15 @@ export default function HomeScreen() {
   );
   const isTodayPanelSelected = Boolean(separateRecordEnabled && todayRecord && showRecordButton);
   const todayClockHands = useMemo(() => getClockHandsFromRecord(todayRecord), [todayRecord]);
+  const activeSeparateRecordTypeName = activeSeparateRecordTypeId
+    ? recordTypes.find((recordType) => recordType.id === activeSeparateRecordTypeId)?.name
+    : null;
   const recordButtonLabel = separateRecordEnabled
     ? todayRecord
       ? t('home.updateRecord')
       : t('home.createRecord')
     : activeSeparateRecordStartedAt
-      ? t('home.endRecord')
+      ? activeSeparateRecordTypeName ?? t('home.endRecord')
       : t('home.startRecord');
   const recordButtonTone = separateRecordEnabled
     ? todayRecord
@@ -383,6 +433,9 @@ export default function HomeScreen() {
                     </Text>
                   )}
                   <View style={styles.todayMetaRow}>
+                    {todayTypeLabel ? (
+                      <Text style={styles.recordTypePill}>{todayTypeLabel}</Text>
+                    ) : null}
                     <Text style={styles.todayDate}>{todayDisplayRange}</Text>
                     <Ionicons color={colors.textSoft} name="create" size={17} />
                   </View>
@@ -443,6 +496,7 @@ export default function HomeScreen() {
                     <Text style={styles.recordWeekday}>{formatWeekdayLabel(record.day_key)}</Text>
                   </View>
                   <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
+                  <Text style={styles.recordTypeText}>{getRecordTypeName(record)}</Text>
                 </View>
                 <View style={styles.recordValueRow}>
                   {recordUnit === 'minutes' ? (
@@ -510,6 +564,53 @@ export default function HomeScreen() {
           />
         </View>
       ) : null}
+
+      <AnimatedSheetModal
+        backdropStyle={styles.modalBackdrop}
+        onClose={() => setRecordTypePickerVisible(false)}
+        sheetStyle={styles.recordTypeSheet}
+        visible={recordTypePickerVisible}
+      >
+        <View style={styles.sheetGrabber} />
+        <View style={styles.sheetHeader}>
+          <View>
+            <Text style={styles.sheetTitle}>{t('home.chooseRecordType')}</Text>
+            <Text style={styles.sheetSubtitle}>{t('home.chooseRecordTypeHint')}</Text>
+          </View>
+          <AnimatedPressable
+            accessibilityLabel={t('stats.closeRecords')}
+            accessibilityRole="button"
+            onPress={() => setRecordTypePickerVisible(false)}
+            pressedScale={0.9}
+            style={styles.sheetCloseButton}
+          >
+            <Ionicons color={colors.textSoft} name="close" size={24} />
+          </AnimatedPressable>
+        </View>
+        <View style={styles.typeChoiceList}>
+          {recordTypes.map((recordType) => {
+            const isDefault = recordType.id === defaultRecordTypeId;
+
+            return (
+              <AnimatedPressable
+                accessibilityRole="button"
+                key={recordType.id}
+                onPress={() => handleStartSeparateRecordWithType(recordType.id)}
+                pressedScale={0.985}
+                style={[styles.typeChoiceRow, isDefault && styles.typeChoiceRowDefault]}
+              >
+                <View style={styles.typeChoiceCopy}>
+                  <Text style={styles.typeChoiceTitle}>{recordType.name}</Text>
+                  {isDefault ? (
+                    <Text style={styles.typeChoiceMeta}>{t('settings.defaultRecordType')}</Text>
+                  ) : null}
+                </View>
+                <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={20} />
+              </AnimatedPressable>
+            );
+          })}
+        </View>
+      </AnimatedSheetModal>
     </SafeAreaView>
   );
 }
@@ -657,6 +758,16 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontSize: 17,
     fontWeight: '800',
   },
+  recordTypePill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   clock: {
     width: 116,
     height: 116,
@@ -768,6 +879,18 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '700',
     marginTop: 3,
   },
+  recordTypeText: {
+    alignSelf: 'flex-start',
+    marginTop: 5,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: colors.primarySoft,
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '900',
+  },
   recordValueRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -812,6 +935,98 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     right: 0,
     bottom: 92,
     alignItems: 'center',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(12, 18, 28, 0.34)',
+  },
+  recordTypeSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 28,
+  },
+  sheetGrabber: {
+    alignSelf: 'center',
+    width: 56,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: colors.borderStrong,
+    marginBottom: spacing.lg,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  sheetTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  sheetSubtitle: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: spacing.xs,
+  },
+  sheetCloseButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+    flexShrink: 0,
+  },
+  typeChoiceList: {
+    gap: spacing.sm,
+  },
+  typeChoiceRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  typeChoiceRowDefault: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
+  typeChoiceCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  typeChoiceTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  typeChoiceMeta: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 3,
   },
   });
 };

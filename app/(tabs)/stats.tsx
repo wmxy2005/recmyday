@@ -34,9 +34,10 @@ import { ConfirmationDialog } from '@/components/ConfirmationDialog';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   type DayRecord,
+  type RecordType,
   deleteRecordById,
   getMonthRecords,
-  getMonthTotalMinutes,
+  getRecordTypes,
   insertManualRecord,
   updateManualRecordById,
 } from '@/data/database';
@@ -63,6 +64,7 @@ import {
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
 const deleteActionWidth = 82;
+let sessionSelectedRecordTypeIds: string[] | null = null;
 
 type EditorTimeSection = 'start' | 'end';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
@@ -106,6 +108,10 @@ function getDateFromDayKey(dayKey: string) {
   return new Date(year, month - 1, day);
 }
 
+function getRecordTypeName(record: DayRecord) {
+  return record.record_type_name || record.record_type_id;
+}
+
 export default function StatsScreen() {
   const { t } = useTranslation();
   const { selectedAt, selectedDayKey: routeSelectedDayKey } = useLocalSearchParams<{
@@ -119,10 +125,15 @@ export default function StatsScreen() {
   const db = useSQLiteContext();
   const [monthDate, setMonthDate] = useState(() => new Date());
   const [records, setRecords] = useState<DayRecord[]>([]);
-  const [totalMinutes, setTotalMinutes] = useState(0);
+  const [recordTypes, setRecordTypes] = useState<RecordType[]>([]);
+  const [selectedRecordTypeIds, setSelectedRecordTypeIds] = useState<string[] | null>(
+    () => sessionSelectedRecordTypeIds,
+  );
+  const [recordTypeFilterVisible, setRecordTypeFilterVisible] = useState(false);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
+  const [defaultRecordTypeId, setDefaultRecordTypeId] = useState('work');
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [dayRecordsSheetVisible, setDayRecordsSheetVisible] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
@@ -131,6 +142,7 @@ export default function StatsScreen() {
   const [promptDialog, setPromptDialog] = useState<{ message: string; title: string } | null>(null);
   const [draftStartTime, setDraftStartTime] = useState('09:00');
   const [draftEndTime, setDraftEndTime] = useState('09:30');
+  const [draftRecordTypeId, setDraftRecordTypeId] = useState('work');
   const [expandedEditorTimeSection, setExpandedEditorTimeSection] =
     useState<EditorTimeSection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -162,17 +174,29 @@ export default function StatsScreen() {
       setIsLoading(true);
     }
 
-    const [monthRecords, total, settings] = await Promise.all([
+    const [monthRecords, nextRecordTypes, settings] = await Promise.all([
       getMonthRecords(db, monthDate),
-      getMonthTotalMinutes(db, monthDate),
+      getRecordTypes(db),
       readRecordSettings(db),
     ]);
+    const validTypeIds = new Set(nextRecordTypes.map((recordType) => recordType.id));
+    const nextSelectedTypeIds = sessionSelectedRecordTypeIds?.filter((id) =>
+      validTypeIds.has(id),
+    );
 
     setRecords(monthRecords);
-    setTotalMinutes(total);
+    setRecordTypes(nextRecordTypes);
+    if (nextSelectedTypeIds && nextSelectedTypeIds.length > 0) {
+      setSelectedRecordTypeIds(nextSelectedTypeIds);
+      sessionSelectedRecordTypeIds = nextSelectedTypeIds;
+    } else {
+      setSelectedRecordTypeIds(null);
+      sessionSelectedRecordTypeIds = null;
+    }
     setRecordUnit(settings.recordUnit);
     setSeparateRecordEnabled(settings.separateRecordEnabled);
     setStartTimeMinutes(settings.startTimeMinutes);
+    setDefaultRecordTypeId(settings.defaultRecordTypeId);
     setIsLoading(false);
   }, [db, monthDate]);
 
@@ -184,8 +208,22 @@ export default function StatsScreen() {
     }, [loadData]),
   );
 
+  const isFilteringRecordTypes = selectedRecordTypeIds !== null;
+  const filteredRecords = useMemo(() => {
+    if (!selectedRecordTypeIds) {
+      return records;
+    }
+
+    const selectedIds = new Set(selectedRecordTypeIds);
+    return records.filter((record) => selectedIds.has(record.record_type_id));
+  }, [records, selectedRecordTypeIds]);
+  const filteredTotalMinutes = useMemo(
+    () => filteredRecords.reduce((sum, record) => sum + record.minutes_since_start, 0),
+    [filteredRecords],
+  );
+
   const recordsByDay = useMemo(() => {
-    return records.reduce<Record<string, DayRecord[]>>((map, record) => {
+    return filteredRecords.reduce<Record<string, DayRecord[]>>((map, record) => {
       if (!map[record.day_key]) {
         map[record.day_key] = [];
       }
@@ -193,7 +231,7 @@ export default function StatsScreen() {
       map[record.day_key].push(record);
       return map;
     }, {});
-  }, [records]);
+  }, [filteredRecords]);
 
   const dayTotals = useMemo(() => {
     return Object.entries(recordsByDay).reduce<Record<string, number>>(
@@ -239,11 +277,14 @@ export default function StatsScreen() {
     (sum, record) => sum + record.minutes_since_start,
     0,
   );
+  const selectedDayAllRecordCount = selectedDayKey
+    ? records.filter((record) => record.day_key === selectedDayKey).length
+    : 0;
   const canCreateSelectedDayRecord =
-    selectedDayKey !== null && (!separateRecordEnabled || selectedDayRecords.length === 0);
+    selectedDayKey !== null && (!separateRecordEnabled || selectedDayAllRecordCount === 0);
   const dayRecordsListMaxHeight = Math.max(120, Math.round(windowHeight * 0.72 - 230));
   const chartRecords = useMemo(() => {
-    const latestRecords = records.slice(-7);
+    const latestRecords = filteredRecords.slice(-7);
     const maxMinutes = Math.max(...latestRecords.map((record) => record.minutes_since_start), 1);
 
     return latestRecords.map((record) => ({
@@ -255,7 +296,7 @@ export default function StatsScreen() {
       ),
       minutes: record.minutes_since_start,
     }));
-  }, [records]);
+  }, [filteredRecords]);
 
   const handleSelectDay = (dayKey: string) => {
     if (selectedDayKey === dayKey) {
@@ -302,6 +343,7 @@ export default function StatsScreen() {
     setEditingRecordId(null);
     setDraftStartTime(formatTimeInput(startTimeMinutes));
     setDraftEndTime(formatTimeInput(currentMinutes));
+    setDraftRecordTypeId(defaultRecordTypeId);
     setExpandedEditorTimeSection(null);
     setRecordEditorVisible(true);
   };
@@ -311,6 +353,7 @@ export default function StatsScreen() {
     setEditingRecordId(record.id);
     setDraftStartTime(formatTimeInput(startMinutes));
     setDraftEndTime(formatTimeInput(endMinutes));
+    setDraftRecordTypeId(record.record_type_id);
     setExpandedEditorTimeSection(null);
     setRecordEditorVisible(true);
   };
@@ -336,6 +379,24 @@ export default function StatsScreen() {
     setExpandedEditorTimeSection(null);
   }, []);
 
+  const handleToggleRecordTypeFilter = (recordTypeId: string) => {
+    setSelectedRecordTypeIds((current) => {
+      const currentIds = current ?? [];
+      const next = currentIds.includes(recordTypeId)
+        ? currentIds.filter((id) => id !== recordTypeId)
+        : [...currentIds, recordTypeId];
+      const normalizedNext = next.length === 0 ? null : next;
+
+      sessionSelectedRecordTypeIds = normalizedNext;
+      return normalizedNext;
+    });
+  };
+
+  const handleClearRecordTypeFilter = () => {
+    sessionSelectedRecordTypeIds = null;
+    setSelectedRecordTypeIds(null);
+  };
+
   const handleSaveRecordEditor = async () => {
     if (!selectedDayKey) {
       return;
@@ -353,9 +414,16 @@ export default function StatsScreen() {
     }
 
     if (editingRecordId === null) {
-      await insertManualRecord(db, selectedDayKey, startMinutes, endMinutes);
+      await insertManualRecord(db, selectedDayKey, startMinutes, endMinutes, draftRecordTypeId);
     } else {
-      await updateManualRecordById(db, editingRecordId, selectedDayKey, startMinutes, endMinutes);
+      await updateManualRecordById(
+        db,
+        editingRecordId,
+        selectedDayKey,
+        startMinutes,
+        endMinutes,
+        draftRecordTypeId,
+      );
     }
 
     setRecordEditorVisible(false);
@@ -426,21 +494,41 @@ export default function StatsScreen() {
         >
         <View style={styles.titleHeader}>
           <Text style={styles.screenTitle}>{t('tabs.stats')}</Text>
-          <AnimatedPressable
-            accessibilityLabel={t('stats.goToCurrentMonth')}
-            accessibilityRole="button"
-            disabled={isCurrentMonth}
-            hitSlop={10}
-            onPress={handleGoToCurrentMonth}
-            pressedScale={0.9}
-            style={({ pressed }) => [
-              styles.headerIconButton,
-              pressed && styles.headerIconButtonPressed,
-              isCurrentMonth && styles.headerIconButtonDisabled,
-            ]}
-          >
-            <Ionicons color={colors.text} name="today-outline" size={24} />
-          </AnimatedPressable>
+          <View style={styles.headerActions}>
+            <AnimatedPressable
+              accessibilityLabel={t('stats.filterRecordTypes')}
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={() => setRecordTypeFilterVisible(true)}
+              pressedScale={0.9}
+              style={({ pressed }) => [
+                styles.headerIconButton,
+                isFilteringRecordTypes && styles.headerIconButtonActive,
+                pressed && styles.headerIconButtonPressed,
+              ]}
+            >
+              <Ionicons
+                color={isFilteringRecordTypes ? colors.surface : colors.text}
+                name="filter"
+                size={23}
+              />
+            </AnimatedPressable>
+            <AnimatedPressable
+              accessibilityLabel={t('stats.goToCurrentMonth')}
+              accessibilityRole="button"
+              disabled={isCurrentMonth}
+              hitSlop={10}
+              onPress={handleGoToCurrentMonth}
+              pressedScale={0.9}
+              style={({ pressed }) => [
+                styles.headerIconButton,
+                pressed && styles.headerIconButtonPressed,
+                isCurrentMonth && styles.headerIconButtonDisabled,
+              ]}
+            >
+              <Ionicons color={colors.text} name="today-outline" size={24} />
+            </AnimatedPressable>
+          </View>
         </View>
 
         <View style={styles.monthSelector}>
@@ -480,7 +568,9 @@ export default function StatsScreen() {
             {isLoading ? (
               <ActivityIndicator color={colors.surface} />
             ) : (
-              <Text style={styles.summaryValue}>{formatDuration(totalMinutes, recordUnit)}</Text>
+              <Text style={styles.summaryValue}>
+                {formatDuration(filteredTotalMinutes, recordUnit)}
+              </Text>
             )}
           </View>
           <View style={styles.chart}>
@@ -573,6 +663,73 @@ export default function StatsScreen() {
           </View>
         </View>
         </ScrollView>
+      <AnimatedSheetModal
+        backdropStyle={styles.modalBackdrop}
+        onClose={() => setRecordTypeFilterVisible(false)}
+        sheetStyle={styles.filterSheet}
+        visible={recordTypeFilterVisible}
+      >
+        <View style={styles.sheetGrabber} />
+        <View style={styles.sheetHeader}>
+          <View style={styles.sheetTitleGroup}>
+            <Text style={styles.sheetTitle}>{t('stats.filterRecordTypes')}</Text>
+            <Text style={styles.sheetSubtitle}>
+              {isFilteringRecordTypes
+                ? t('stats.filterActiveCount', { count: selectedRecordTypeIds?.length ?? 0 })
+                : t('stats.filterAllTypes')}
+            </Text>
+          </View>
+          <AnimatedPressable
+            accessibilityLabel={t('stats.closeRecords')}
+            accessibilityRole="button"
+            onPress={() => setRecordTypeFilterVisible(false)}
+            pressedScale={0.9}
+            style={styles.sheetCloseButton}
+          >
+            <Ionicons color={colors.textSoft} name="close" size={24} />
+          </AnimatedPressable>
+        </View>
+        <View style={styles.filterList}>
+          <AnimatedPressable
+            accessibilityRole="button"
+            onPress={handleClearRecordTypeFilter}
+            pressedScale={0.985}
+            style={[styles.filterRow, !isFilteringRecordTypes && styles.filterRowActive]}
+          >
+            <Text style={[styles.filterTitle, !isFilteringRecordTypes && styles.filterTitleActive]}>
+              {t('stats.allRecordTypes')}
+            </Text>
+            <View style={[styles.radio, !isFilteringRecordTypes && styles.radioActive]}>
+              {!isFilteringRecordTypes ? (
+                <Ionicons color={colors.surface} name="checkmark" size={16} />
+              ) : null}
+            </View>
+          </AnimatedPressable>
+          {recordTypes.map((recordType) => {
+            const isActive = Boolean(selectedRecordTypeIds?.includes(recordType.id));
+
+            return (
+              <AnimatedPressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: isActive }}
+                key={recordType.id}
+                onPress={() => handleToggleRecordTypeFilter(recordType.id)}
+                pressedScale={0.985}
+                style={[styles.filterRow, isActive && styles.filterRowActive]}
+              >
+                <Text style={[styles.filterTitle, isActive && styles.filterTitleActive]}>
+                  {recordType.name}
+                </Text>
+                <View style={[styles.radio, isActive && styles.radioActive]}>
+                  {isActive ? (
+                    <Ionicons color={colors.surface} name="checkmark" size={16} />
+                  ) : null}
+                </View>
+              </AnimatedPressable>
+            );
+          })}
+        </View>
+      </AnimatedSheetModal>
       <AnimatedSheetModal
         backdropStyle={styles.modalBackdrop}
         onClose={handleCloseDayRecords}
@@ -718,6 +875,41 @@ export default function StatsScreen() {
           )}
           <View style={styles.editorInputRow}>
             <View style={styles.editorInputMain}>
+              <View style={[styles.editorInputIcon, { backgroundColor: colors.primarySoft }]}>
+                <Ionicons color={colors.primary} name="bookmark-outline" size={22} />
+              </View>
+              <Text style={styles.editorInputLabel}>{t('stats.recordType')}</Text>
+            </View>
+            <ScrollView
+              horizontal
+              keyboardShouldPersistTaps="handled"
+              showsHorizontalScrollIndicator={false}
+              style={styles.typePickerScroll}
+            >
+              <View style={styles.typePickerRow}>
+                {recordTypes.map((recordType) => {
+                  const isActive = draftRecordTypeId === recordType.id;
+
+                  return (
+                    <AnimatedPressable
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: isActive }}
+                      key={recordType.id}
+                      onPress={() => setDraftRecordTypeId(recordType.id)}
+                      pressedScale={0.94}
+                      style={[styles.typeChip, isActive && styles.typeChipActive]}
+                    >
+                      <Text style={[styles.typeChipText, isActive && styles.typeChipTextActive]}>
+                        {recordType.name}
+                      </Text>
+                    </AnimatedPressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+          <View style={styles.editorInputRow}>
+            <View style={styles.editorInputMain}>
               <View style={[styles.editorInputIcon, { backgroundColor: '#EAF4FF' }]}>
                 <Ionicons color={colors.highlight} name="hourglass-outline" size={22} />
               </View>
@@ -838,9 +1030,12 @@ function SwipeRecordRow({
       </View>
       <View style={styles.recordPopupCopy}>
         <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
-        <Text style={styles.recordPopupMeta}>
-          {formatRecordDateTime(record.updated_at, t('stats.noData'))}
-        </Text>
+        <View style={styles.recordPopupMetaRow}>
+          <Text style={styles.recordTypePill}>{getRecordTypeName(record)}</Text>
+          <Text style={styles.recordPopupMeta}>
+            {formatRecordDateTime(record.updated_at, t('stats.noData'))}
+          </Text>
+        </View>
       </View>
       <Text
         style={[
@@ -923,6 +1118,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  headerIconButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   headerIconButtonPressed: {
     backgroundColor: colors.surfaceElevated,
@@ -1090,6 +1294,63 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(12, 18, 28, 0.34)',
   },
+  filterSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    elevation: 28,
+  },
+  filterList: {
+    gap: spacing.sm,
+  },
+  filterRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterRowActive: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
+  filterTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  filterTitleActive: {
+    color: colors.primary,
+  },
+  radio: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+  },
+  radioActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
   dayRecordsSheet: {
     position: 'absolute',
     left: 0,
@@ -1224,6 +1485,22 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     minWidth: 0,
     gap: 3,
   },
+  recordPopupMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  recordTypePill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: colors.primarySoft,
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '900',
+  },
   recordPopupTime: {
     color: colors.text,
     fontSize: 17,
@@ -1310,6 +1587,37 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  typePickerScroll: {
+    maxWidth: 180,
+    flexShrink: 0,
+  },
+  typePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  typeChip: {
+    minHeight: 36,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  typeChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  typeChipText: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  typeChipTextActive: {
+    color: colors.surface,
   },
   editorTimeCard: {
     borderRadius: radius.lg,

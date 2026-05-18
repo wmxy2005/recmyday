@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { createExportFile, parseExportFile } from '@/utils/backupFile';
+import {
+  createExportChecksum,
+  createExportFile,
+  parseExportFile,
+  parseExportFileData,
+} from '@/utils/backupFile';
 
 const record = {
   day_key: '2026-05-17',
   recorded_at: '2026-05-17T10:30:00.000Z',
   timestamp_ms: 1778994600000,
   minutes_since_start: 90,
+  record_type_id: 'work',
   created_at: '2026-05-17 10:30:00',
   updated_at: '2026-05-17 10:30:00',
 };
@@ -26,5 +32,44 @@ describe('backup file format', () => {
     };
 
     expect(() => parseExportFile(JSON.stringify(tampered))).toThrow('Invalid export file');
+  });
+
+  it('maps old records without a type to the default type', () => {
+    const { record_type_id, ...oldRecord } = record;
+    const exportedAt = '2026-05-17T10:31:00.000Z';
+    const payload = {
+      app: 'recmyday' as const,
+      schemaVersion: 1 as const,
+      exportedAt,
+      recordCount: 1,
+      records: [oldRecord],
+    };
+    const file = {
+      ...payload,
+      checksum: createExportChecksum(payload),
+    };
+
+    expect(parseExportFile(JSON.stringify(file))).toEqual([record]);
+  });
+
+  it('round-trips custom record types in the export payload', () => {
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        name: '专注',
+        sort_order: 5,
+        is_builtin: 0,
+      },
+    ];
+    const file = createExportFile(
+      [{ ...record, record_type_id: 'custom-focus' }],
+      '2026-05-17T10:31:00.000Z',
+      recordTypes,
+    );
+
+    expect(parseExportFileData(JSON.stringify(file))).toEqual({
+      records: [{ ...record, record_type_id: 'custom-focus' }],
+      recordTypes,
+    });
   });
 });

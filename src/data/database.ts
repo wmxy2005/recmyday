@@ -9,11 +9,29 @@ import {
 
 export const databaseName = 'rec-my-day.db';
 
-const databaseVersion = 5;
+const databaseVersion = 6;
 const defaultStartTimeMinutes = 0;
 const defaultRecordUnit: RecordUnit = 'minutes';
 const defaultRecentRecordLimit = 5;
 const defaultSeparateRecordEnabled = false;
+export const defaultRecordTypeId = 'work';
+export const builtInRecordTypes = [
+  { id: 'work', name: '工作', sort_order: 0 },
+  { id: 'study', name: '学习', sort_order: 1 },
+  { id: 'exercise', name: '运动', sort_order: 2 },
+  { id: 'rest', name: '休息', sort_order: 3 },
+  { id: 'other', name: '其它', sort_order: 4 },
+] as const;
+
+export type RecordType = {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_builtin: number;
+  created_at: string;
+  updated_at: string;
+  record_count?: number;
+};
 
 export type DayRecord = {
   id: number;
@@ -21,11 +39,17 @@ export type DayRecord = {
   recorded_at: string;
   timestamp_ms: number;
   minutes_since_start: number;
+  record_type_id: string;
+  record_type_name: string;
   created_at: string;
   updated_at: string;
 };
 
-export type ImportDayRecord = Omit<DayRecord, 'id'>;
+export type ImportDayRecord = Omit<DayRecord, 'id' | 'record_type_name' | 'record_type_id'> & {
+  record_type_id?: string;
+};
+
+export type ImportRecordType = Pick<RecordType, 'id' | 'name' | 'sort_order' | 'is_builtin'>;
 
 type SettingRow = {
   value: string;
@@ -33,6 +57,52 @@ type SettingRow = {
 
 function boolToSettingValue(value: boolean) {
   return value ? '1' : '0';
+}
+
+function normalizeRecordTypeName(name: string) {
+  return name.trim().replace(/\s+/g, ' ').slice(0, 24);
+}
+
+async function seedBuiltInRecordTypes(db: SQLiteDatabase) {
+  for (const type of builtInRecordTypes) {
+    await db.runAsync(
+      `
+        INSERT INTO record_types (
+          id,
+          name,
+          sort_order,
+          is_builtin,
+          updated_at
+        )
+        VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          sort_order = excluded.sort_order,
+          is_builtin = 1,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      type.id,
+      type.name,
+      type.sort_order,
+    );
+  }
+}
+
+async function getExistingRecordTypeId(db: SQLiteDatabase, id: string | null | undefined) {
+  if (!id) {
+    return null;
+  }
+
+  const row = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM record_types WHERE id = ?',
+    id,
+  );
+
+  return row?.id ?? null;
+}
+
+async function getFallbackRecordTypeId(db: SQLiteDatabase) {
+  return (await getExistingRecordTypeId(db, await getDefaultRecordTypeId(db))) ?? defaultRecordTypeId;
 }
 
 export async function migrateDatabase(db: SQLiteDatabase) {
@@ -58,6 +128,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
         recorded_at TEXT NOT NULL,
         timestamp_ms INTEGER NOT NULL,
         minutes_since_start INTEGER NOT NULL,
+        record_type_id TEXT NOT NULL DEFAULT 'work',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -97,6 +168,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
         recorded_at TEXT NOT NULL,
         timestamp_ms INTEGER NOT NULL,
         minutes_since_start INTEGER NOT NULL,
+        record_type_id TEXT NOT NULL DEFAULT 'work',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -133,6 +205,45 @@ export async function migrateDatabase(db: SQLiteDatabase) {
       'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
       'separate_record_enabled',
       boolToSettingValue(defaultSeparateRecordEnabled),
+    );
+  }
+
+  if (currentVersion < 6) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS record_types (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        is_builtin INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await seedBuiltInRecordTypes(db);
+
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(day_records)');
+    const hasRecordTypeId = columns.some((column) => column.name === 'record_type_id');
+
+    if (!hasRecordTypeId) {
+      await db.runAsync(
+        `ALTER TABLE day_records ADD COLUMN record_type_id TEXT NOT NULL DEFAULT '${defaultRecordTypeId}'`,
+      );
+    }
+
+    await db.runAsync(
+      'UPDATE day_records SET record_type_id = ? WHERE record_type_id IS NULL OR record_type_id = ?',
+      defaultRecordTypeId,
+      '',
+    );
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_day_records_record_type_id
+      ON day_records(record_type_id);
+    `);
+    await db.runAsync(
+      'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
+      'default_record_type_id',
+      defaultRecordTypeId,
     );
   }
 
@@ -243,8 +354,144 @@ export async function setSeparateRecordEnabled(db: SQLiteDatabase, enabled: bool
   return enabled;
 }
 
+export async function getRecordTypes(db: SQLiteDatabase) {
+  return db.getAllAsync<RecordType>(
+    `
+      SELECT
+        record_types.*,
+        COUNT(day_records.id) AS record_count
+      FROM record_types
+      LEFT JOIN day_records ON day_records.record_type_id = record_types.id
+      GROUP BY record_types.id
+      ORDER BY record_types.sort_order ASC, record_types.created_at ASC
+    `,
+  );
+}
+
+export async function getDefaultRecordTypeId(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<SettingRow>(
+    'SELECT value FROM settings WHERE key = ?',
+    'default_record_type_id',
+  );
+
+  return row?.value || defaultRecordTypeId;
+}
+
+export async function setDefaultRecordTypeId(db: SQLiteDatabase, recordTypeId: string) {
+  const existingId = await getExistingRecordTypeId(db, recordTypeId);
+  const nextId = existingId ?? defaultRecordTypeId;
+
+  await db.runAsync(
+    `
+      INSERT INTO settings (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `,
+    'default_record_type_id',
+    nextId,
+  );
+
+  return nextId;
+}
+
+export async function createRecordType(db: SQLiteDatabase, name: string) {
+  const normalizedName = normalizeRecordTypeName(name);
+
+  if (!normalizedName) {
+    throw new Error('Record type name is required');
+  }
+
+  const row = await db.getFirstAsync<{ max_sort_order: number | null }>(
+    'SELECT MAX(sort_order) AS max_sort_order FROM record_types',
+  );
+  const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const sortOrder = (row?.max_sort_order ?? -1) + 1;
+
+  await db.runAsync(
+    `
+      INSERT INTO record_types (
+        id,
+        name,
+        sort_order,
+        is_builtin,
+        updated_at
+      )
+      VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
+    `,
+    id,
+    normalizedName,
+    sortOrder,
+  );
+
+  return id;
+}
+
+export async function updateRecordTypeName(db: SQLiteDatabase, id: string, name: string) {
+  const normalizedName = normalizeRecordTypeName(name);
+
+  if (!normalizedName) {
+    throw new Error('Record type name is required');
+  }
+
+  await db.runAsync(
+    `
+      UPDATE record_types
+      SET name = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND is_builtin = 0
+    `,
+    normalizedName,
+    id,
+  );
+}
+
+export async function reorderRecordType(db: SQLiteDatabase, id: string, direction: -1 | 1) {
+  const types = await getRecordTypes(db);
+  const customTypes = types.filter((type) => !type.is_builtin);
+  const index = customTypes.findIndex((type) => type.id === id);
+  const swapIndex = index + direction;
+
+  if (index < 0 || swapIndex < 0 || swapIndex >= customTypes.length) {
+    return;
+  }
+
+  const current = customTypes[index];
+  const target = customTypes[swapIndex];
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'UPDATE record_types SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_builtin = 0',
+      target.sort_order,
+      current.id,
+    );
+    await db.runAsync(
+      'UPDATE record_types SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_builtin = 0',
+      current.sort_order,
+      target.id,
+    );
+  });
+}
+
+export async function deleteRecordType(db: SQLiteDatabase, id: string) {
+  const [type, defaultTypeId, usage] = await Promise.all([
+    db.getFirstAsync<RecordType>('SELECT * FROM record_types WHERE id = ?', id),
+    getDefaultRecordTypeId(db),
+    db.getFirstAsync<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM day_records WHERE record_type_id = ?',
+      id,
+    ),
+  ]);
+
+  if (!type || type.is_builtin || defaultTypeId === id || (usage?.count ?? 0) > 0) {
+    return false;
+  }
+
+  await db.runAsync('DELETE FROM record_types WHERE id = ? AND is_builtin = 0', id);
+  return true;
+}
+
 export async function upsertCurrentRecord(db: SQLiteDatabase, date = new Date()) {
   const startTimeMinutes = await getStartTimeMinutes(db);
+  const recordTypeId = await getFallbackRecordTypeId(db);
   const dayKey = getCalendarDayKey(date);
   const minutesSinceStart = getMinutesSinceDayStart(date, startTimeMinutes);
   const recordedAt = date.toISOString();
@@ -258,12 +505,14 @@ export async function upsertCurrentRecord(db: SQLiteDatabase, date = new Date())
           recorded_at = ?,
           timestamp_ms = ?,
           minutes_since_start = ?,
+          record_type_id = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `,
       recordedAt,
       date.getTime(),
       minutesSinceStart,
+      recordTypeId,
       existingRecord.id,
     );
 
@@ -277,14 +526,16 @@ export async function upsertCurrentRecord(db: SQLiteDatabase, date = new Date())
         recorded_at,
         timestamp_ms,
         minutes_since_start,
+        record_type_id,
         updated_at
       )
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `,
     dayKey,
     recordedAt,
     date.getTime(),
     minutesSinceStart,
+    recordTypeId,
   );
 
   return getRecordByDayKey(db, dayKey);
@@ -294,7 +545,10 @@ export async function insertSeparateRecord(
   db: SQLiteDatabase,
   startedAt: Date,
   endedAt = new Date(),
+  recordTypeId?: string,
 ) {
+  const nextRecordTypeId =
+    (await getExistingRecordTypeId(db, recordTypeId)) ?? (await getFallbackRecordTypeId(db));
   const dayKey = getCalendarDayKey(endedAt);
   const minutes = Math.max(0, Math.ceil((endedAt.getTime() - startedAt.getTime()) / 60000));
 
@@ -305,14 +559,16 @@ export async function insertSeparateRecord(
         recorded_at,
         timestamp_ms,
         minutes_since_start,
+        record_type_id,
         updated_at
       )
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `,
     dayKey,
     endedAt.toISOString(),
     endedAt.getTime(),
     minutes,
+    nextRecordTypeId,
   );
 
   return getRecordByDayKey(db, dayKey);
@@ -329,7 +585,10 @@ export async function insertManualRecord(
   dayKey: string,
   startMinutes: number,
   endMinutes: number,
+  recordTypeId?: string,
 ) {
+  const nextRecordTypeId =
+    (await getExistingRecordTypeId(db, recordTypeId)) ?? (await getFallbackRecordTypeId(db));
   const endedAt = getDateForDayTime(dayKey, endMinutes);
   const minutes = Math.max(0, Math.trunc(endMinutes - startMinutes));
 
@@ -340,14 +599,16 @@ export async function insertManualRecord(
         recorded_at,
         timestamp_ms,
         minutes_since_start,
+        record_type_id,
         updated_at
       )
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `,
     dayKey,
     endedAt.toISOString(),
     endedAt.getTime(),
     minutes,
+    nextRecordTypeId,
   );
 
   return getRecordByDayKey(db, dayKey);
@@ -359,7 +620,10 @@ export async function updateManualRecordById(
   dayKey: string,
   startMinutes: number,
   endMinutes: number,
+  recordTypeId?: string,
 ) {
+  const nextRecordTypeId =
+    (await getExistingRecordTypeId(db, recordTypeId)) ?? (await getFallbackRecordTypeId(db));
   const endedAt = getDateForDayTime(dayKey, endMinutes);
   const minutes = Math.max(0, Math.trunc(endMinutes - startMinutes));
 
@@ -371,6 +635,7 @@ export async function updateManualRecordById(
         recorded_at = ?,
         timestamp_ms = ?,
         minutes_since_start = ?,
+        record_type_id = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `,
@@ -378,6 +643,7 @@ export async function updateManualRecordById(
     endedAt.toISOString(),
     endedAt.getTime(),
     minutes,
+    nextRecordTypeId,
     id,
   );
 
@@ -388,7 +654,10 @@ export async function upsertRecordMinutes(
   db: SQLiteDatabase,
   dayKey: string,
   minutesSinceStart: number,
+  recordTypeId?: string,
 ) {
+  const nextRecordTypeId =
+    (await getExistingRecordTypeId(db, recordTypeId)) ?? (await getFallbackRecordTypeId(db));
   const normalizedMinutes = Math.max(0, Math.trunc(minutesSinceStart));
   const now = new Date();
 
@@ -399,14 +668,16 @@ export async function upsertRecordMinutes(
         recorded_at,
         timestamp_ms,
         minutes_since_start,
+        record_type_id,
         updated_at
       )
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `,
     dayKey,
     now.toISOString(),
     now.getTime(),
     normalizedMinutes,
+    nextRecordTypeId,
   );
 
   return getRecordByDayKey(db, dayKey);
@@ -414,14 +685,27 @@ export async function upsertRecordMinutes(
 
 export async function getRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
   return db.getFirstAsync<DayRecord>(
-    'SELECT * FROM day_records WHERE day_key = ? ORDER BY timestamp_ms DESC LIMIT 1',
+    `
+      SELECT day_records.*, record_types.name AS record_type_name
+      FROM day_records
+      LEFT JOIN record_types ON record_types.id = day_records.record_type_id
+      WHERE day_key = ?
+      ORDER BY timestamp_ms DESC
+      LIMIT 1
+    `,
     dayKey,
   );
 }
 
 export async function getDayRecordsByDayKey(db: SQLiteDatabase, dayKey: string) {
   return db.getAllAsync<DayRecord>(
-    'SELECT * FROM day_records WHERE day_key = ? ORDER BY timestamp_ms ASC',
+    `
+      SELECT day_records.*, record_types.name AS record_type_name
+      FROM day_records
+      LEFT JOIN record_types ON record_types.id = day_records.record_type_id
+      WHERE day_key = ?
+      ORDER BY timestamp_ms ASC
+    `,
     dayKey,
   );
 }
@@ -445,22 +729,71 @@ export async function getCurrentDayKey(db: SQLiteDatabase, date = new Date()) {
 
 export async function getRecentRecords(db: SQLiteDatabase, limit = 8) {
   return db.getAllAsync<DayRecord>(
-    'SELECT * FROM day_records ORDER BY day_key DESC, timestamp_ms DESC LIMIT ?',
+    `
+      SELECT day_records.*, record_types.name AS record_type_name
+      FROM day_records
+      LEFT JOIN record_types ON record_types.id = day_records.record_type_id
+      ORDER BY day_key DESC, timestamp_ms DESC
+      LIMIT ?
+    `,
     limit,
   );
 }
 
 export async function getAllDayRecords(db: SQLiteDatabase) {
   return db.getAllAsync<DayRecord>(
-    'SELECT * FROM day_records ORDER BY day_key ASC, timestamp_ms ASC, id ASC',
+    `
+      SELECT day_records.*, record_types.name AS record_type_name
+      FROM day_records
+      LEFT JOIN record_types ON record_types.id = day_records.record_type_id
+      ORDER BY day_key ASC, timestamp_ms ASC, day_records.id ASC
+    `,
   );
 }
 
-export async function replaceAllDayRecords(db: SQLiteDatabase, records: ImportDayRecord[]) {
+export async function replaceAllDayRecords(
+  db: SQLiteDatabase,
+  records: ImportDayRecord[],
+  recordTypes: ImportRecordType[] = [],
+) {
+  const fallbackRecordTypeId = await getFallbackRecordTypeId(db);
+
   await db.withTransactionAsync(async () => {
+    for (const recordType of recordTypes) {
+      const normalizedName = normalizeRecordTypeName(recordType.name);
+
+      if (!normalizedName || recordType.is_builtin) {
+        continue;
+      }
+
+      await db.runAsync(
+        `
+          INSERT INTO record_types (
+            id,
+            name,
+            sort_order,
+            is_builtin,
+            updated_at
+          )
+          VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            sort_order = excluded.sort_order,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE record_types.is_builtin = 0
+        `,
+        recordType.id,
+        normalizedName,
+        recordType.sort_order,
+      );
+    }
+
     await db.runAsync('DELETE FROM day_records');
 
     for (const record of records) {
+      const recordTypeId =
+        (await getExistingRecordTypeId(db, record.record_type_id)) ?? fallbackRecordTypeId;
+
       await db.runAsync(
         `
           INSERT INTO day_records (
@@ -468,15 +801,17 @@ export async function replaceAllDayRecords(db: SQLiteDatabase, records: ImportDa
             recorded_at,
             timestamp_ms,
             minutes_since_start,
+            record_type_id,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `,
         record.day_key,
         record.recorded_at,
         record.timestamp_ms,
         record.minutes_since_start,
+        recordTypeId,
         record.created_at,
         record.updated_at,
       );
@@ -488,7 +823,13 @@ export async function getMonthRecords(db: SQLiteDatabase, monthDate: Date) {
   const monthKey = formatMonthKey(monthDate);
 
   return db.getAllAsync<DayRecord>(
-    'SELECT * FROM day_records WHERE day_key LIKE ? ORDER BY day_key ASC, timestamp_ms ASC',
+    `
+      SELECT day_records.*, record_types.name AS record_type_name
+      FROM day_records
+      LEFT JOIN record_types ON record_types.id = day_records.record_type_id
+      WHERE day_key LIKE ?
+      ORDER BY day_key ASC, timestamp_ms ASC
+    `,
     `${monthKey}-%`,
   );
 }
