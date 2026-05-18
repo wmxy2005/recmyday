@@ -31,6 +31,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
 import { ConfirmationDialog } from '@/components/ConfirmationDialog';
+import { RecordTypeBadge } from '@/components/RecordTypeBadge';
 import { TimeWheelPicker } from '@/components/TimeWheelPicker';
 import {
   type DayRecord,
@@ -60,6 +61,11 @@ import {
   formatRecordRange,
   getRecordStartEndMinutes,
 } from '@/utils/recordFormat';
+import {
+  getRecordIconName,
+  getRecordTypeIconName,
+  mixedRecordTypeIconName,
+} from '@/utils/recordTypeIcon';
 
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
@@ -297,6 +303,7 @@ export default function StatsScreen() {
       minutes: record.minutes_since_start,
     }));
   }, [filteredRecords]);
+  const draftRecordType = recordTypes.find((recordType) => recordType.id === draftRecordTypeId);
 
   const handleSelectDay = (dayKey: string) => {
     if (selectedDayKey === dayKey) {
@@ -689,17 +696,35 @@ export default function StatsScreen() {
             <Ionicons color={colors.textSoft} name="close" size={24} />
           </AnimatedPressable>
         </View>
-        <View style={styles.filterList}>
+        <View style={styles.filterCardGrid}>
           <AnimatedPressable
             accessibilityRole="button"
             onPress={handleClearRecordTypeFilter}
             pressedScale={0.985}
-            style={[styles.filterRow, !isFilteringRecordTypes && styles.filterRowActive]}
+            style={[styles.filterTypeCard, !isFilteringRecordTypes && styles.filterTypeCardActive]}
           >
-            <Text style={[styles.filterTitle, !isFilteringRecordTypes && styles.filterTitleActive]}>
+            <View
+              style={[
+                styles.filterTypeIcon,
+                !isFilteringRecordTypes && styles.filterTypeIconActive,
+              ]}
+            >
+              <Ionicons
+                color={!isFilteringRecordTypes ? colors.surface : colors.textSoft}
+                name={mixedRecordTypeIconName}
+                size={23}
+              />
+            </View>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.filterTypeText,
+                !isFilteringRecordTypes && styles.filterTypeTextActive,
+              ]}
+            >
               {t('stats.allRecordTypes')}
             </Text>
-            <View style={[styles.radio, !isFilteringRecordTypes && styles.radioActive]}>
+            <View style={[styles.filterTypeCheck, !isFilteringRecordTypes && styles.radioActive]}>
               {!isFilteringRecordTypes ? (
                 <Ionicons color={colors.surface} name="checkmark" size={16} />
               ) : null}
@@ -715,12 +740,22 @@ export default function StatsScreen() {
                 key={recordType.id}
                 onPress={() => handleToggleRecordTypeFilter(recordType.id)}
                 pressedScale={0.985}
-                style={[styles.filterRow, isActive && styles.filterRowActive]}
+                style={[styles.filterTypeCard, isActive && styles.filterTypeCardActive]}
               >
-                <Text style={[styles.filterTitle, isActive && styles.filterTitleActive]}>
+                <View style={[styles.filterTypeIcon, isActive && styles.filterTypeIconActive]}>
+                  <Ionicons
+                    color={isActive ? colors.surface : colors.textSoft}
+                    name={getRecordTypeIconName(recordType)}
+                    size={23}
+                  />
+                </View>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.filterTypeText, isActive && styles.filterTypeTextActive]}
+                >
                   {recordType.name}
                 </Text>
-                <View style={[styles.radio, isActive && styles.radioActive]}>
+                <View style={[styles.filterTypeCheck, isActive && styles.radioActive]}>
                   {isActive ? (
                     <Ionicons color={colors.surface} name="checkmark" size={16} />
                   ) : null}
@@ -876,7 +911,11 @@ export default function StatsScreen() {
           <View style={styles.editorInputRow}>
             <View style={styles.editorInputMain}>
               <View style={[styles.editorInputIcon, { backgroundColor: colors.primarySoft }]}>
-                <Ionicons color={colors.primary} name="bookmark-outline" size={22} />
+                <Ionicons
+                  color={colors.primary}
+                  name={draftRecordType ? getRecordTypeIconName(draftRecordType) : 'bookmark-outline'}
+                  size={22}
+                />
               </View>
               <Text style={styles.editorInputLabel}>{t('stats.recordType')}</Text>
             </View>
@@ -899,6 +938,11 @@ export default function StatsScreen() {
                       pressedScale={0.94}
                       style={[styles.typeChip, isActive && styles.typeChipActive]}
                     >
+                      <Ionicons
+                        color={isActive ? colors.surface : colors.textSoft}
+                        name={getRecordTypeIconName(recordType)}
+                        size={15}
+                      />
                       <Text style={[styles.typeChipText, isActive && styles.typeChipTextActive]}>
                         {recordType.name}
                       </Text>
@@ -1031,7 +1075,11 @@ function SwipeRecordRow({
       <View style={styles.recordPopupCopy}>
         <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
         <View style={styles.recordPopupMetaRow}>
-          <Text style={styles.recordTypePill}>{getRecordTypeName(record)}</Text>
+          <RecordTypeBadge
+            compact
+            iconName={getRecordIconName(record)}
+            label={getRecordTypeName(record)}
+          />
           <Text style={styles.recordPopupMeta}>
             {formatRecordDateTime(record.updated_at, t('stats.noData'))}
           </Text>
@@ -1313,6 +1361,61 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   filterList: {
     gap: spacing.sm,
+  },
+  filterCardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  filterTypeCard: {
+    width: 96,
+    minHeight: 86,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterTypeCardActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  filterTypeIcon: {
+    width: 32,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterTypeIconActive: {
+    opacity: 1,
+  },
+  filterTypeText: {
+    maxWidth: '100%',
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  filterTypeTextActive: {
+    color: colors.surface,
+  },
+  filterTypeCheck: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   filterRow: {
     minHeight: 58,
@@ -1601,6 +1704,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     minHeight: 36,
     paddingHorizontal: spacing.md,
     borderRadius: 999,
+    flexDirection: 'row',
+    gap: spacing.xs,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surfaceAlt,

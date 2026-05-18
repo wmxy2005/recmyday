@@ -46,7 +46,7 @@ describe('backup file format', () => {
     };
     const file = {
       ...payload,
-      checksum: createExportChecksum(payload),
+      checksum: createExportChecksum(payload as never),
     };
 
     expect(parseExportFile(JSON.stringify(file))).toEqual([record]);
@@ -56,6 +56,7 @@ describe('backup file format', () => {
     const recordTypes = [
       {
         id: 'custom-focus',
+        icon_name: 'bulb-outline' as const,
         name: '专注',
         sort_order: 5,
         is_builtin: 0,
@@ -71,5 +72,59 @@ describe('backup file format', () => {
       records: [{ ...record, record_type_id: 'custom-focus' }],
       recordTypes,
     });
+  });
+
+  it('adds fallback icons to old custom record types', () => {
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        name: '专注',
+        sort_order: 5,
+        is_builtin: 0,
+      },
+    ];
+    const file = createExportFile(
+      [{ ...record, record_type_id: 'custom-focus' }],
+      '2026-05-17T10:31:00.000Z',
+      recordTypes,
+    );
+
+    const parsed = parseExportFileData(JSON.stringify(file));
+
+    expect(parsed.recordTypes).toEqual([
+      {
+        ...recordTypes[0],
+        icon_name: 'pricetag-outline',
+      },
+    ]);
+  });
+
+  it('normalizes invalid imported record type icons', () => {
+    const exportedAt = '2026-05-17T10:31:00.000Z';
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        icon_name: 'not-real',
+        name: '专注',
+        sort_order: 5,
+        is_builtin: 0,
+      },
+    ];
+    const payload = {
+      app: 'recmyday' as const,
+      schemaVersion: 3 as const,
+      exportedAt,
+      recordCount: 1,
+      recordTypes,
+      records: [{ ...record, record_type_id: 'custom-focus' }],
+    };
+    const file = {
+      ...payload,
+      checksum: createExportChecksum(payload as never),
+    };
+
+    const parsed = parseExportFileData(JSON.stringify(file));
+
+    expect(parsed.recordTypes[0].icon_name).toBe('pricetag-outline');
   });
 });

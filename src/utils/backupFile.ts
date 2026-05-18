@@ -1,8 +1,9 @@
 import type { ImportDayRecord, ImportRecordType } from '@/data/database';
-import { defaultRecordTypeId } from '@/data/database';
+import { builtInRecordTypes, defaultRecordTypeId } from '@/data/database';
+import { fallbackRecordTypeIconName, normalizeRecordTypeIconName } from '@/utils/recordTypeIcon';
 
-const exportSchemaVersion = 2;
-const supportedExportSchemaVersions = [1, 2] as const;
+const exportSchemaVersion = 3;
+const supportedExportSchemaVersions = [1, 2, 3] as const;
 const exportAppId = 'recmyday';
 export const maxImportFileBytes = 2 * 1024 * 1024;
 export const maxImportRecordCount = 10000;
@@ -77,7 +78,16 @@ function isImportRecordType(value: unknown): value is ImportRecordType {
     recordType.name.length > 0 &&
     typeof recordType.sort_order === 'number' &&
     Number.isInteger(recordType.sort_order) &&
+    (recordType.icon_name === undefined || typeof recordType.icon_name === 'string') &&
     (recordType.is_builtin === 0 || recordType.is_builtin === 1)
+  );
+}
+
+function getImportRecordTypeIconName(recordType: ImportRecordType) {
+  return normalizeRecordTypeIconName(
+    recordType.icon_name ??
+      builtInRecordTypes.find((builtInType) => builtInType.id === recordType.id)?.icon_name ??
+      fallbackRecordTypeIconName,
   );
 }
 
@@ -137,6 +147,9 @@ export function parseExportFileData(text: string) {
       ...record,
       record_type_id: record.record_type_id || defaultRecordTypeId,
     })),
-    recordTypes: parsed.recordTypes ?? [],
+    recordTypes: (parsed.recordTypes ?? []).map((recordType) => ({
+      ...recordType,
+      icon_name: getImportRecordTypeIconName(recordType),
+    })),
   };
 }

@@ -1,6 +1,12 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
+  builtInRecordTypeIcons,
+  fallbackRecordTypeIconName,
+  normalizeRecordTypeIconName,
+  type RecordTypeIconName,
+} from '@/utils/recordTypeIcon';
+import {
   formatMonthKey,
   getCalendarDayKey,
   getMinutesSinceDayStart,
@@ -9,18 +15,18 @@ import {
 
 export const databaseName = 'rec-my-day.db';
 
-const databaseVersion = 6;
+const databaseVersion = 7;
 const defaultStartTimeMinutes = 0;
 const defaultRecordUnit: RecordUnit = 'minutes';
 const defaultRecentRecordLimit = 5;
 const defaultSeparateRecordEnabled = false;
 export const defaultRecordTypeId = 'work';
 export const builtInRecordTypes = [
-  { id: 'work', name: '工作', sort_order: 0 },
-  { id: 'study', name: '学习', sort_order: 1 },
-  { id: 'exercise', name: '运动', sort_order: 2 },
-  { id: 'rest', name: '休息', sort_order: 3 },
-  { id: 'other', name: '其它', sort_order: 4 },
+  { id: 'work', name: '工作', sort_order: 0, icon_name: builtInRecordTypeIcons.work },
+  { id: 'study', name: '学习', sort_order: 1, icon_name: builtInRecordTypeIcons.study },
+  { id: 'exercise', name: '运动', sort_order: 2, icon_name: builtInRecordTypeIcons.exercise },
+  { id: 'rest', name: '休息', sort_order: 3, icon_name: builtInRecordTypeIcons.rest },
+  { id: 'other', name: '其它', sort_order: 4, icon_name: builtInRecordTypeIcons.other },
 ] as const;
 
 export type RecordType = {
@@ -28,6 +34,7 @@ export type RecordType = {
   name: string;
   sort_order: number;
   is_builtin: number;
+  icon_name: RecordTypeIconName;
   created_at: string;
   updated_at: string;
   record_count?: number;
@@ -41,15 +48,21 @@ export type DayRecord = {
   minutes_since_start: number;
   record_type_id: string;
   record_type_name: string;
+  record_type_icon_name: RecordTypeIconName;
   created_at: string;
   updated_at: string;
 };
 
-export type ImportDayRecord = Omit<DayRecord, 'id' | 'record_type_name' | 'record_type_id'> & {
+export type ImportDayRecord = Omit<
+  DayRecord,
+  'id' | 'record_type_name' | 'record_type_icon_name' | 'record_type_id'
+> & {
   record_type_id?: string;
 };
 
-export type ImportRecordType = Pick<RecordType, 'id' | 'name' | 'sort_order' | 'is_builtin'>;
+export type ImportRecordType = Pick<RecordType, 'id' | 'name' | 'sort_order' | 'is_builtin'> & {
+  icon_name?: RecordTypeIconName;
+};
 
 type SettingRow = {
   value: string;
@@ -71,20 +84,56 @@ async function seedBuiltInRecordTypes(db: SQLiteDatabase) {
           id,
           name,
           sort_order,
+          icon_name,
           is_builtin,
           updated_at
         )
-        VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           sort_order = excluded.sort_order,
+          icon_name = excluded.icon_name,
           is_builtin = 1,
           updated_at = CURRENT_TIMESTAMP
       `,
       type.id,
       type.name,
       type.sort_order,
+      type.icon_name,
     );
+  }
+}
+
+async function repairRecordTypeIcons(db: SQLiteDatabase) {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(record_types)');
+  const hasIconName = columns.some((column) => column.name === 'icon_name');
+
+  if (!hasIconName) {
+    await db.runAsync(
+      `ALTER TABLE record_types ADD COLUMN icon_name TEXT NOT NULL DEFAULT '${fallbackRecordTypeIconName}'`,
+    );
+  }
+
+  await seedBuiltInRecordTypes(db);
+
+  const recordTypes = await db.getAllAsync<Pick<RecordType, 'id' | 'icon_name' | 'is_builtin'>>(
+    'SELECT id, icon_name, is_builtin FROM record_types',
+  );
+
+  for (const recordType of recordTypes) {
+    if (recordType.is_builtin) {
+      continue;
+    }
+
+    const normalizedIconName = normalizeRecordTypeIconName(recordType.icon_name);
+
+    if (normalizedIconName !== recordType.icon_name) {
+      await db.runAsync(
+        'UPDATE record_types SET icon_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_builtin = 0',
+        normalizedIconName,
+        recordType.id,
+      );
+    }
   }
 }
 
@@ -110,6 +159,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
   const currentVersion = result?.user_version ?? 0;
 
   if (currentVersion >= databaseVersion) {
+    await repairRecordTypeIcons(db);
     return;
   }
 
@@ -215,6 +265,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
         name TEXT NOT NULL,
         sort_order INTEGER NOT NULL,
         is_builtin INTEGER NOT NULL DEFAULT 0,
+        icon_name TEXT NOT NULL DEFAULT 'pricetag-outline',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -246,6 +297,25 @@ export async function migrateDatabase(db: SQLiteDatabase) {
       defaultRecordTypeId,
     );
   }
+
+  if (currentVersion < 7) {
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(record_types)');
+    const hasIconName = columns.some((column) => column.name === 'icon_name');
+
+    if (!hasIconName) {
+      await db.runAsync(
+        `ALTER TABLE record_types ADD COLUMN icon_name TEXT NOT NULL DEFAULT '${fallbackRecordTypeIconName}'`,
+      );
+    }
+
+    await db.runAsync(
+      'UPDATE record_types SET icon_name = ? WHERE icon_name IS NULL OR icon_name = ?',
+      fallbackRecordTypeIconName,
+      '',
+    );
+  }
+
+  await repairRecordTypeIcons(db);
 
   await db.execAsync(`PRAGMA user_version = ${databaseVersion}`);
 }
@@ -394,8 +464,13 @@ export async function setDefaultRecordTypeId(db: SQLiteDatabase, recordTypeId: s
   return nextId;
 }
 
-export async function createRecordType(db: SQLiteDatabase, name: string) {
+export async function createRecordType(
+  db: SQLiteDatabase,
+  name: string,
+  iconName = fallbackRecordTypeIconName,
+) {
   const normalizedName = normalizeRecordTypeName(name);
+  const normalizedIconName = normalizeRecordTypeIconName(iconName);
 
   if (!normalizedName) {
     throw new Error('Record type name is required');
@@ -414,16 +489,34 @@ export async function createRecordType(db: SQLiteDatabase, name: string) {
         name,
         sort_order,
         is_builtin,
+        icon_name,
         updated_at
       )
-      VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
     `,
     id,
     normalizedName,
     sortOrder,
+    normalizedIconName,
   );
 
   return id;
+}
+
+export async function updateRecordTypeIcon(
+  db: SQLiteDatabase,
+  id: string,
+  iconName: string,
+) {
+  await db.runAsync(
+    `
+      UPDATE record_types
+      SET icon_name = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND is_builtin = 0
+    `,
+    normalizeRecordTypeIconName(iconName),
+    id,
+  );
 }
 
 export async function updateRecordTypeName(db: SQLiteDatabase, id: string, name: string) {
@@ -686,7 +779,10 @@ export async function upsertRecordMinutes(
 export async function getRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
   return db.getFirstAsync<DayRecord>(
     `
-      SELECT day_records.*, record_types.name AS record_type_name
+      SELECT
+        day_records.*,
+        record_types.name AS record_type_name,
+        record_types.icon_name AS record_type_icon_name
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       WHERE day_key = ?
@@ -700,7 +796,10 @@ export async function getRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
 export async function getDayRecordsByDayKey(db: SQLiteDatabase, dayKey: string) {
   return db.getAllAsync<DayRecord>(
     `
-      SELECT day_records.*, record_types.name AS record_type_name
+      SELECT
+        day_records.*,
+        record_types.name AS record_type_name,
+        record_types.icon_name AS record_type_icon_name
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       WHERE day_key = ?
@@ -730,7 +829,10 @@ export async function getCurrentDayKey(db: SQLiteDatabase, date = new Date()) {
 export async function getRecentRecords(db: SQLiteDatabase, limit = 8) {
   return db.getAllAsync<DayRecord>(
     `
-      SELECT day_records.*, record_types.name AS record_type_name
+      SELECT
+        day_records.*,
+        record_types.name AS record_type_name,
+        record_types.icon_name AS record_type_icon_name
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       ORDER BY day_key DESC, timestamp_ms DESC
@@ -743,7 +845,10 @@ export async function getRecentRecords(db: SQLiteDatabase, limit = 8) {
 export async function getAllDayRecords(db: SQLiteDatabase) {
   return db.getAllAsync<DayRecord>(
     `
-      SELECT day_records.*, record_types.name AS record_type_name
+      SELECT
+        day_records.*,
+        record_types.name AS record_type_name,
+        record_types.icon_name AS record_type_icon_name
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       ORDER BY day_key ASC, timestamp_ms ASC, day_records.id ASC
@@ -761,6 +866,7 @@ export async function replaceAllDayRecords(
   await db.withTransactionAsync(async () => {
     for (const recordType of recordTypes) {
       const normalizedName = normalizeRecordTypeName(recordType.name);
+      const normalizedIconName = normalizeRecordTypeIconName(recordType.icon_name);
 
       if (!normalizedName || recordType.is_builtin) {
         continue;
@@ -773,18 +879,21 @@ export async function replaceAllDayRecords(
             name,
             sort_order,
             is_builtin,
+            icon_name,
             updated_at
           )
-          VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             sort_order = excluded.sort_order,
+            icon_name = excluded.icon_name,
             updated_at = CURRENT_TIMESTAMP
           WHERE record_types.is_builtin = 0
         `,
         recordType.id,
         normalizedName,
         recordType.sort_order,
+        normalizedIconName,
       );
     }
 
@@ -824,7 +933,10 @@ export async function getMonthRecords(db: SQLiteDatabase, monthDate: Date) {
 
   return db.getAllAsync<DayRecord>(
     `
-      SELECT day_records.*, record_types.name AS record_type_name
+      SELECT
+        day_records.*,
+        record_types.name AS record_type_name,
+        record_types.icon_name AS record_type_icon_name
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       WHERE day_key LIKE ?

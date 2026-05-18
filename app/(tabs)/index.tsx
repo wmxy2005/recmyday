@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
 import { RecordButton } from '@/components/RecordButton';
+import { RecordTypeBadge } from '@/components/RecordTypeBadge';
 import {
   type DayRecord,
   type RecordType,
@@ -44,6 +45,11 @@ import {
 } from '@/utils/date';
 import { getRecordMinutesColor } from '@/utils/recordColor';
 import { formatRecordRange, formatRecordsRange, parseRecordTime } from '@/utils/recordFormat';
+import {
+  getRecordIconName,
+  getRecordTypeIconName,
+  mixedRecordTypeIconName,
+} from '@/utils/recordTypeIcon';
 
 function getIsBeforeStartTime(startTimeMinutes: number) {
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
@@ -193,17 +199,33 @@ export default function HomeScreen() {
       ? formatRecordRange(todayRecord, startTimeMinutes)
       : ''
     : formatRecordsRange(todayRecords, startTimeMinutes);
-  const todayTypeLabel = useMemo(() => {
+  const todayTypeInfo = useMemo(() => {
     if (!todayRecord) {
-      return '';
+      return null;
     }
 
     if (separateRecordEnabled) {
-      return getRecordTypeName(todayRecord);
+      return {
+        iconName: getRecordIconName(todayRecord),
+        label: getRecordTypeName(todayRecord),
+      };
     }
 
-    const typeNames = Array.from(new Set(todayRecords.map(getRecordTypeName)));
-    return typeNames.length > 1 ? t('recordTypes.mixed') : typeNames[0] ?? '';
+    const typeIds = Array.from(new Set(todayRecords.map((record) => record.record_type_id)));
+    if (typeIds.length > 1) {
+      return {
+        iconName: mixedRecordTypeIconName,
+        label: t('recordTypes.mixed'),
+      };
+    }
+
+    const firstRecord = todayRecords[0];
+    return firstRecord
+      ? {
+          iconName: getRecordIconName(firstRecord),
+          label: getRecordTypeName(firstRecord),
+        }
+      : null;
   }, [separateRecordEnabled, t, todayRecord, todayRecords]);
 
   const shouldShowRecordButtonArea =
@@ -433,8 +455,12 @@ export default function HomeScreen() {
                     </Text>
                   )}
                   <View style={styles.todayMetaRow}>
-                    {todayTypeLabel ? (
-                      <Text style={styles.recordTypePill}>{todayTypeLabel}</Text>
+                    {todayTypeInfo ? (
+                      <RecordTypeBadge
+                        compact
+                        iconName={todayTypeInfo.iconName}
+                        label={todayTypeInfo.label}
+                      />
                     ) : null}
                     <Text style={styles.todayDate}>{todayDisplayRange}</Text>
                     <Ionicons color={colors.textSoft} name="create" size={17} />
@@ -496,7 +522,12 @@ export default function HomeScreen() {
                     <Text style={styles.recordWeekday}>{formatWeekdayLabel(record.day_key)}</Text>
                   </View>
                   <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
-                  <Text style={styles.recordTypeText}>{getRecordTypeName(record)}</Text>
+                  <RecordTypeBadge
+                    compact
+                    iconName={getRecordIconName(record)}
+                    label={getRecordTypeName(record)}
+                    style={styles.recordTypeText}
+                  />
                 </View>
                 <View style={styles.recordValueRow}>
                   {recordUnit === 'minutes' ? (
@@ -599,6 +630,13 @@ export default function HomeScreen() {
                 pressedScale={0.985}
                 style={[styles.typeChoiceRow, isDefault && styles.typeChoiceRowDefault]}
               >
+                <View style={[styles.typeChoiceIcon, isDefault && styles.typeChoiceIconDefault]}>
+                  <Ionicons
+                    color={isDefault ? colors.surface : colors.primary}
+                    name={getRecordTypeIconName(recordType)}
+                    size={22}
+                  />
+                </View>
                 <View style={styles.typeChoiceCopy}>
                   <Text style={styles.typeChoiceTitle}>{recordType.name}</Text>
                   {isDefault ? (
@@ -882,14 +920,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   recordTypeText: {
     alignSelf: 'flex-start',
     marginTop: 5,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 999,
-    overflow: 'hidden',
-    backgroundColor: colors.primarySoft,
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: '900',
   },
   recordValueRow: {
     flexDirection: 'row',
@@ -1012,6 +1042,18 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   typeChoiceRowDefault: {
     backgroundColor: colors.primarySoft,
     borderColor: colors.primary,
+  },
+  typeChoiceIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+    flexShrink: 0,
+  },
+  typeChoiceIconDefault: {
+    backgroundColor: colors.primary,
   },
   typeChoiceCopy: {
     flex: 1,

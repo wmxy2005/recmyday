@@ -18,7 +18,7 @@
 
 ## Import And Export
 
-- Export files include `app`, `schemaVersion`, `exportedAt`, `recordCount`, `records` and `checksum`.
+- Export files include `app`, `schemaVersion`, `exportedAt`, `recordCount`, `recordTypes`, `records` and `checksum`; schema v3 includes record type icons.
 - Import keeps the existing user-facing behavior while validating app id, schema version, record count, checksum, record shape, file size and maximum record count. Legacy exports without record types are mapped to the default built-in type.
 - Import replaces all records only after the user confirms.
 
