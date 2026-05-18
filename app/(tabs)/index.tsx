@@ -5,9 +5,11 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  type LayoutChangeEvent,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -43,7 +45,12 @@ import {
   type RecordUnit,
 } from '@/utils/date';
 import { getRecordMinutesColor } from '@/utils/recordColor';
-import { formatRecordRange, formatRecordsRange, parseRecordTime } from '@/utils/recordFormat';
+import {
+  formatRecordRange,
+  formatRecordRangeParts,
+  formatRecordsRangeParts,
+  parseRecordTime,
+} from '@/utils/recordFormat';
 import {
   getRecordIconName,
   getRecordTypeIconName,
@@ -51,9 +58,24 @@ import {
 } from '@/utils/recordTypeIcon';
 import { getDayRecordTypeName, getRecordTypeName } from '@/utils/recordTypeName';
 
+const recordTypeGridBaseColumns = 3;
+const recordTypeGridBreakpoints = [
+  { minWidth: 1024, columns: 10 },
+  { minWidth: 768, columns: 8 },
+  { minWidth: 600, columns: 6 },
+  { minWidth: 360, columns: 4 },
+] as const;
+
 function getIsBeforeStartTime(startTimeMinutes: number) {
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   return currentMinutes < startTimeMinutes;
+}
+
+function getRecordTypeGridColumns(width: number) {
+  return (
+    recordTypeGridBreakpoints.find((breakpoint) => width >= breakpoint.minWidth)?.columns ??
+    recordTypeGridBaseColumns
+  );
 }
 
 function getClockHandsFromRecord(record: DayRecord | null) {
@@ -83,6 +105,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const theme = useAppTheme();
   const { colors } = theme;
+  const { width: windowWidth } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
   const [currentDayKey, setCurrentDayKey] = useState('');
@@ -100,6 +123,7 @@ export default function HomeScreen() {
   );
   const [activeSeparateRecordTypeId, setActiveSeparateRecordTypeId] = useState<string | null>(null);
   const [recordTypePickerVisible, setRecordTypePickerVisible] = useState(false);
+  const [recordTypeGridWidth, setRecordTypeGridWidth] = useState(0);
   const [isBeforeStartTime, setIsBeforeStartTime] = useState(() => getIsBeforeStartTime(0));
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
@@ -114,6 +138,14 @@ export default function HomeScreen() {
     dayKey: '',
     visible: false,
   });
+  const recordTypeGridColumns = getRecordTypeGridColumns(windowWidth);
+  const recordTypeCardWidth =
+    recordTypeGridWidth > 0
+      ? Math.floor(
+          (recordTypeGridWidth - spacing.sm * (recordTypeGridColumns - 1)) /
+            recordTypeGridColumns,
+        )
+      : undefined;
 
   const loadData = useCallback(async (showLoading = false) => {
     if (showLoading) {
@@ -190,38 +222,56 @@ export default function HomeScreen() {
     () => todayRecords.reduce((sum, record) => sum + record.minutes_since_start, 0),
     [todayRecords],
   );
-  const todayDisplayRange = separateRecordEnabled
+  const todayDisplayRangeParts = separateRecordEnabled
     ? todayRecord
-      ? formatRecordRange(todayRecord, startTimeMinutes)
-      : ''
-    : formatRecordsRange(todayRecords, startTimeMinutes);
-  const todayTypeInfo = useMemo(() => {
+      ? formatRecordRangeParts(todayRecord, startTimeMinutes)
+      : null
+    : formatRecordsRangeParts(todayRecords, startTimeMinutes);
+  const todayTypeInfos = useMemo(() => {
     if (!todayRecord) {
-      return null;
+      return [];
     }
 
     if (separateRecordEnabled) {
-      return {
-        iconName: getRecordIconName(todayRecord),
-        label: getDayRecordTypeName(todayRecord, t),
-      };
+      return [
+        {
+          id: todayRecord.record_type_id,
+          iconName: getRecordIconName(todayRecord),
+          label: getDayRecordTypeName(todayRecord, t),
+        },
+      ];
     }
 
-    const typeIds = Array.from(new Set(todayRecords.map((record) => record.record_type_id)));
-    if (typeIds.length > 1) {
-      return {
-        iconName: mixedRecordTypeIconName,
-        label: t('recordTypes.mixed'),
-      };
+    const recordsByTypeId = new Map<string, DayRecord>();
+    for (const record of todayRecords) {
+      if (!recordsByTypeId.has(record.record_type_id)) {
+        recordsByTypeId.set(record.record_type_id, record);
+      }
     }
 
-    const firstRecord = todayRecords[0];
-    return firstRecord
-      ? {
+    const uniqueRecords = Array.from(recordsByTypeId.values());
+    if (uniqueRecords.length >= 3) {
+      const firstRecord = uniqueRecords[0];
+
+      return [
+        {
+          id: firstRecord.record_type_id,
           iconName: getRecordIconName(firstRecord),
           label: getDayRecordTypeName(firstRecord, t),
-        }
-      : null;
+        },
+        {
+          id: 'mixed',
+          iconName: mixedRecordTypeIconName,
+          label: t('recordTypes.mixed'),
+        },
+      ];
+    }
+
+    return uniqueRecords.map((record) => ({
+      id: record.record_type_id,
+      iconName: getRecordIconName(record),
+      label: getDayRecordTypeName(record, t),
+    }));
   }, [separateRecordEnabled, t, todayRecord, todayRecords]);
 
   const shouldShowRecordButtonArea =
@@ -333,6 +383,14 @@ export default function HomeScreen() {
     setActiveSeparateRecordStartedAt(new Date());
     setActiveSeparateRecordTypeId(recordTypeId);
     setRecordTypePickerVisible(false);
+  };
+
+  const handleRecordTypeGridLayout = (event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+
+    setRecordTypeGridWidth((current) =>
+      Math.abs(current - nextWidth) < 1 ? current : nextWidth,
+    );
   };
 
   const handleToggleRecordButton = () => {
@@ -462,15 +520,23 @@ export default function HomeScreen() {
                     </Text>
                   )}
                   <View style={styles.todayMetaRow}>
-                    {todayTypeInfo ? (
+                    {todayDisplayRangeParts ? (
+                      <View style={styles.todayTimeFields}>
+                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
+                        <Text style={styles.todayTimeSeparator}>-</Text>
+                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
+                        <Ionicons color={colors.textSoft} name="create" size={17} />
+                      </View>
+                    ) : null}
+                    {todayTypeInfos.map((typeInfo) => (
                       <RecordTypeBadge
                         compact
-                        iconName={todayTypeInfo.iconName}
-                        label={todayTypeInfo.label}
+                        iconName={typeInfo.iconName}
+                        key={typeInfo.id}
+                        label={typeInfo.label}
+                        style={styles.todayTypeBadge}
                       />
-                    ) : null}
-                    <Text style={styles.todayDate}>{todayDisplayRange}</Text>
-                    <Ionicons color={colors.textSoft} name="create" size={17} />
+                    ))}
                   </View>
                 </>
               ) : (
@@ -531,10 +597,17 @@ export default function HomeScreen() {
                   <View style={styles.recordMetaRow}>
                     {!separateRecordEnabled ? (
                       <RecordTypeBadge
+                        active
                         compact
                         iconName={getRecordIconName(record)}
                         label={getDayRecordTypeName(record, t)}
-                        style={styles.recordTypeText}
+                        style={[
+                          styles.recordTypeText,
+                          {
+                            backgroundColor: getRecordMinutesColor(record.minutes_since_start),
+                            borderColor: getRecordMinutesColor(record.minutes_since_start),
+                          },
+                        ]}
                       />
                     ) : null}
                     <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
@@ -616,7 +689,7 @@ export default function HomeScreen() {
       >
         <View style={styles.sheetGrabber} />
         <View style={styles.sheetHeader}>
-          <View>
+          <View style={styles.sheetTitleGroup}>
             <Text style={styles.sheetTitle}>{t('home.chooseRecordType')}</Text>
             <Text style={styles.sheetSubtitle}>{t('home.chooseRecordTypeHint')}</Text>
           </View>
@@ -630,7 +703,7 @@ export default function HomeScreen() {
             <Ionicons color={colors.textSoft} name="close" size={24} />
           </AnimatedPressable>
         </View>
-        <View style={styles.typeChoiceList}>
+        <View onLayout={handleRecordTypeGridLayout} style={styles.typeChoiceGrid}>
           {recordTypes.map((recordType) => {
             const isDefault = recordType.id === defaultRecordTypeId;
 
@@ -640,7 +713,11 @@ export default function HomeScreen() {
                 key={recordType.id}
                 onPress={() => handleStartSeparateRecordWithType(recordType.id)}
                 pressedScale={0.985}
-                style={[styles.typeChoiceRow, isDefault && styles.typeChoiceRowDefault]}
+                style={[
+                  styles.typeChoiceCard,
+                  recordTypeCardWidth !== undefined && { width: recordTypeCardWidth },
+                  isDefault && styles.typeChoiceCardDefault,
+                ]}
               >
                 <View style={[styles.typeChoiceIcon, isDefault && styles.typeChoiceIconDefault]}>
                   <Ionicons
@@ -649,13 +726,17 @@ export default function HomeScreen() {
                     size={22}
                   />
                 </View>
-                <View style={styles.typeChoiceCopy}>
-                  <Text style={styles.typeChoiceTitle}>{getRecordTypeName(recordType, t)}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.typeChoiceTitle, isDefault && styles.typeChoiceTitleDefault]}
+                >
+                  {getRecordTypeName(recordType, t)}
+                </Text>
+                <View style={[styles.typeChoiceCheck, isDefault && styles.typeChoiceCheckDefault]}>
                   {isDefault ? (
-                    <Text style={styles.typeChoiceMeta}>{t('settings.defaultRecordType')}</Text>
+                    <Ionicons color={colors.surface} name="checkmark" size={14} />
                   ) : null}
                 </View>
-                <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={20} />
               </AnimatedPressable>
             );
           })}
@@ -742,13 +823,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     paddingRight: spacing.md,
   },
   cardLabelRow: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    flexShrink: 0,
     gap: spacing.xs,
     marginBottom: spacing.sm,
   },
   cardLabel: {
+    flexShrink: 0,
     color: colors.text,
     fontSize: 15,
     fontWeight: '900',
@@ -757,6 +840,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     marginBottom: spacing.sm,
   },
   todayPanelWeekday: {
+    flexShrink: 0,
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: 999,
@@ -766,13 +850,19 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '800',
     overflow: 'hidden',
   },
+  todayTypeBadge: {
+    flexShrink: 0,
+    maxWidth: undefined,
+  },
   loadingIndicator: {
     alignSelf: 'flex-start',
     marginTop: spacing.xl,
   },
   minutesRow: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'flex-end',
+    flexShrink: 0,
   },
   minutesNumber: {
     color: colors.text,
@@ -814,7 +904,19 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
-  todayDate: {
+  todayTimeFields: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: spacing.xs,
+  },
+  todayTimeField: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  todayTimeSeparator: {
     color: colors.text,
     fontSize: 17,
     fontWeight: '800',
@@ -1031,10 +1133,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   sheetHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
     marginBottom: spacing.lg,
+  },
+  sheetTitleGroup: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
   },
   sheetTitle: {
     color: colors.text,
@@ -1046,7 +1153,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     color: colors.muted,
     fontSize: 14,
     fontWeight: '800',
-    marginTop: spacing.xs,
   },
   sheetCloseButton: {
     width: 48,
@@ -1057,52 +1163,65 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: colors.surfaceAlt,
     flexShrink: 0,
   },
-  typeChoiceList: {
+  typeChoiceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  typeChoiceRow: {
-    minHeight: 62,
-    flexDirection: 'row',
+  typeChoiceCard: {
+    width: 96,
+    minHeight: 74,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.xs,
     paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  typeChoiceRowDefault: {
-    backgroundColor: colors.primarySoft,
+  typeChoiceCardDefault: {
+    backgroundColor: colors.primary,
     borderColor: colors.primary,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 5,
   },
   typeChoiceIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 28,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primarySoft,
-    flexShrink: 0,
   },
   typeChoiceIconDefault: {
-    backgroundColor: colors.primary,
-  },
-  typeChoiceCopy: {
-    flex: 1,
-    minWidth: 0,
+    opacity: 1,
   },
   typeChoiceTitle: {
-    color: colors.text,
-    fontSize: 16,
+    maxWidth: '100%',
+    color: colors.textSoft,
+    fontSize: 13,
     fontWeight: '900',
   },
-  typeChoiceMeta: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    marginTop: 3,
+  typeChoiceTitleDefault: {
+    color: colors.surface,
+  },
+  typeChoiceCheck: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  typeChoiceCheckDefault: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   });
 };

@@ -143,7 +143,7 @@ export default {
     durationHoursOnly: '{{hours}}h',
     minutesShortUnit: 'min',
     minutesUnit: 'min',
-    minutesFullUnit: 'minutes',
+    minutesFullUnit: 'mins',
     secondsShortUnit: 'sec',
   },
   recordTypes: {

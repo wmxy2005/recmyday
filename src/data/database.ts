@@ -15,7 +15,7 @@ import {
 
 export const databaseName = 'rec-my-day.db';
 
-const databaseVersion = 7;
+const databaseVersion = 8;
 const defaultStartTimeMinutes = 0;
 const defaultRecordUnit: RecordUnit = 'minutes';
 const defaultRecentRecordLimit = 5;
@@ -312,6 +312,18 @@ export async function migrateDatabase(db: SQLiteDatabase) {
       'UPDATE record_types SET icon_name = ? WHERE icon_name IS NULL OR icon_name = ?',
       fallbackRecordTypeIconName,
       '',
+    );
+  }
+
+  if (currentVersion < 8) {
+    await db.runAsync(
+      `
+        INSERT INTO settings (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `,
+      'separate_record_enabled',
+      boolToSettingValue(defaultSeparateRecordEnabled),
     );
   }
 

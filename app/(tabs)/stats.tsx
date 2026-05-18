@@ -78,6 +78,13 @@ const filterTypeGridBreakpoints = [
   { minWidth: 600, columns: 6 },
   { minWidth: 360, columns: 4 },
 ] as const;
+const editorRecordTypeGridBaseColumns = 3;
+const editorRecordTypeGridBreakpoints = [
+  { minWidth: 1024, columns: 10 },
+  { minWidth: 768, columns: 8 },
+  { minWidth: 600, columns: 6 },
+  { minWidth: 360, columns: 4 },
+] as const;
 let sessionSelectedRecordTypeIds: string[] | null = null;
 
 type EditorTimeSection = 'start' | 'end';
@@ -129,6 +136,13 @@ function getFilterTypeGridColumns(width: number) {
   );
 }
 
+function getEditorRecordTypeGridColumns(width: number) {
+  return (
+    editorRecordTypeGridBreakpoints.find((breakpoint) => width >= breakpoint.minWidth)
+      ?.columns ?? editorRecordTypeGridBaseColumns
+  );
+}
+
 export default function StatsScreen() {
   const { t } = useTranslation();
   const { selectedAt, selectedDayKey: routeSelectedDayKey } = useLocalSearchParams<{
@@ -156,6 +170,7 @@ export default function StatsScreen() {
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [recordEditorVisible, setRecordEditorVisible] = useState(false);
   const [filterTypeGridWidth, setFilterTypeGridWidth] = useState(0);
+  const [editorTypeGridWidth, setEditorTypeGridWidth] = useState(0);
   const [pendingDeleteRecordId, setPendingDeleteRecordId] = useState<number | null>(null);
   const [promptDialog, setPromptDialog] = useState<{ message: string; title: string } | null>(null);
   const [draftStartTime, setDraftStartTime] = useState('09:00');
@@ -163,6 +178,7 @@ export default function StatsScreen() {
   const [draftRecordTypeId, setDraftRecordTypeId] = useState('work');
   const [expandedEditorTimeSection, setExpandedEditorTimeSection] =
     useState<EditorTimeSection | null>(null);
+  const [editorTypeExpanded, setEditorTypeExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const hasLoadedRef = useRef(false);
   const filterTypeGridColumns = getFilterTypeGridColumns(windowWidth);
@@ -171,6 +187,22 @@ export default function StatsScreen() {
       ? Math.floor(
           (filterTypeGridWidth - spacing.sm * (filterTypeGridColumns - 1)) /
             filterTypeGridColumns,
+        )
+      : undefined;
+  const editorTypeGridColumns = getEditorRecordTypeGridColumns(windowWidth);
+  const estimatedEditorTypeGridWidth = Math.max(
+    0,
+    windowWidth - spacing.lg * 2 - spacing.md * 2 - 2,
+  );
+  const editorTypeGridContentWidth = Math.max(
+    0,
+    (editorTypeGridWidth || estimatedEditorTypeGridWidth) - spacing.md * 2,
+  );
+  const editorTypeCardWidth =
+    editorTypeGridContentWidth > 0
+      ? Math.floor(
+          (editorTypeGridContentWidth - spacing.sm * (editorTypeGridColumns - 1)) /
+            editorTypeGridColumns,
         )
       : undefined;
 
@@ -372,6 +404,7 @@ export default function StatsScreen() {
     setDraftEndTime(formatTimeInput(currentMinutes));
     setDraftRecordTypeId(defaultRecordTypeId);
     setExpandedEditorTimeSection(null);
+    setEditorTypeExpanded(false);
     setRecordEditorVisible(true);
   };
 
@@ -382,6 +415,7 @@ export default function StatsScreen() {
     setDraftEndTime(formatTimeInput(endMinutes));
     setDraftRecordTypeId(record.record_type_id);
     setExpandedEditorTimeSection(null);
+    setEditorTypeExpanded(false);
     setRecordEditorVisible(true);
   };
 
@@ -404,6 +438,7 @@ export default function StatsScreen() {
   const handleRecordEditorExitComplete = useCallback(() => {
     setEditingRecordId(null);
     setExpandedEditorTimeSection(null);
+    setEditorTypeExpanded(false);
   }, []);
 
   const handleToggleRecordTypeFilter = (recordTypeId: string) => {
@@ -428,6 +463,14 @@ export default function StatsScreen() {
     const nextWidth = event.nativeEvent.layout.width;
 
     setFilterTypeGridWidth((current) =>
+      Math.abs(current - nextWidth) < 1 ? current : nextWidth,
+    );
+  };
+
+  const handleEditorTypeGridLayout = (event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+
+    setEditorTypeGridWidth((current) =>
       Math.abs(current - nextWidth) < 1 ? current : nextWidth,
     );
   };
@@ -944,24 +987,47 @@ export default function StatsScreen() {
             colors.infoSoft,
             (value) => setDraftEndTime(cleanTimeInput(value)),
           )}
-          <View style={styles.editorInputRow}>
-            <View style={styles.editorInputMain}>
+          <View style={styles.editorTypeSection}>
+            <AnimatedPressable
+              accessibilityRole="button"
+              onPress={() => setEditorTypeExpanded((current) => !current)}
+              pressedScale={0.985}
+              style={styles.editorTypeHeader}
+            >
               <View style={[styles.editorInputIcon, { backgroundColor: colors.primarySoft }]}>
                 <Ionicons
                   color={colors.primary}
-                  name={draftRecordType ? getRecordTypeIconName(draftRecordType) : 'bookmark-outline'}
+                  name={
+                    draftRecordType ? getRecordTypeIconName(draftRecordType) : 'bookmark-outline'
+                  }
                   size={22}
                 />
               </View>
-              <Text style={styles.editorInputLabel}>{t('stats.recordType')}</Text>
-            </View>
-            <ScrollView
-              horizontal
-              keyboardShouldPersistTaps="handled"
-              showsHorizontalScrollIndicator={false}
-              style={styles.typePickerScroll}
-            >
-              <View style={styles.typePickerRow}>
+              <Text
+                style={[
+                  styles.editorInputLabel,
+                  editorTypeExpanded && { color: colors.primary },
+                ]}
+              >
+                {t('stats.recordType')}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.editorTypeValue,
+                  editorTypeExpanded && { color: colors.primary },
+                ]}
+              >
+                {draftRecordType ? getRecordTypeName(draftRecordType, t) : t('stats.allRecordTypes')}
+              </Text>
+              <Ionicons
+                color={editorTypeExpanded ? colors.primary : colors.mutedSubtle}
+                name={editorTypeExpanded ? 'chevron-up' : 'chevron-forward'}
+                size={21}
+              />
+            </AnimatedPressable>
+            {editorTypeExpanded ? (
+              <View onLayout={handleEditorTypeGridLayout} style={styles.editorTypeCardGrid}>
                 {recordTypes.map((recordType) => {
                   const isActive = draftRecordTypeId === recordType.id;
 
@@ -971,22 +1037,44 @@ export default function StatsScreen() {
                       accessibilityState={{ checked: isActive }}
                       key={recordType.id}
                       onPress={() => setDraftRecordTypeId(recordType.id)}
-                      pressedScale={0.94}
-                      style={[styles.typeChip, isActive && styles.typeChipActive]}
+                      pressedScale={0.985}
+                      style={[
+                        styles.editorTypeCard,
+                        editorTypeCardWidth !== undefined && { width: editorTypeCardWidth },
+                        isActive && styles.editorTypeCardActive,
+                      ]}
                     >
-                      <Ionicons
-                        color={isActive ? colors.surface : colors.textSoft}
-                        name={getRecordTypeIconName(recordType)}
-                        size={15}
-                      />
-                      <Text style={[styles.typeChipText, isActive && styles.typeChipTextActive]}>
+                      <View
+                        style={[
+                          styles.editorTypeCardIcon,
+                          isActive && styles.editorTypeCardIconActive,
+                        ]}
+                      >
+                        <Ionicons
+                          color={isActive ? colors.surface : colors.textSoft}
+                          name={getRecordTypeIconName(recordType)}
+                          size={22}
+                        />
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.editorTypeCardText,
+                          isActive && styles.editorTypeCardTextActive,
+                        ]}
+                      >
                         {getRecordTypeName(recordType, t)}
                       </Text>
+                      <View style={[styles.editorTypeCardCheck, isActive && styles.radioActive]}>
+                        {isActive ? (
+                          <Ionicons color={colors.surface} name="checkmark" size={14} />
+                        ) : null}
+                      </View>
                     </AnimatedPressable>
                   );
                 })}
               </View>
-            </ScrollView>
+            ) : null}
           </View>
           <View style={styles.editorInputRow}>
             <View style={styles.editorInputMain}>
@@ -1742,38 +1830,89 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     borderWidth: 1,
     borderColor: colors.border,
   },
-  typePickerScroll: {
-    maxWidth: 180,
-    flexShrink: 0,
-  },
-  typePickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  typeChip: {
-    minHeight: 36,
-    paddingHorizontal: spacing.md,
-    borderRadius: 999,
-    flexDirection: 'row',
-    gap: spacing.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceAlt,
+  editorTypeSection: {
+    overflow: 'hidden',
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  typeChipActive: {
+  editorTypeHeader: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  editorTypeValue: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  editorTypeCardGrid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  editorTypeCard: {
+    minHeight: 74,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  editorTypeCardActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 5,
   },
-  typeChipText: {
+  editorTypeCardIcon: {
+    width: 28,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editorTypeCardIconActive: {
+    opacity: 1,
+  },
+  editorTypeCardText: {
+    maxWidth: '100%',
     color: colors.textSoft,
     fontSize: 13,
     fontWeight: '900',
   },
-  typeChipTextActive: {
+  editorTypeCardTextActive: {
     color: colors.surface,
+  },
+  editorTypeCardCheck: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   editorTimeCard: {
     borderRadius: radius.lg,

@@ -43,18 +43,33 @@ export function getRecordStartEndMinutes(record: DayRecord) {
 }
 
 export function formatRecordRange(record: DayRecord, startTimeMinutes: number) {
+  const { end, start } = formatRecordRangeParts(record, startTimeMinutes);
+
+  return `${start} - ${end}`;
+}
+
+export function formatRecordRangeParts(record: DayRecord, startTimeMinutes: number) {
   const { endDate, startDate } = getRecordStartEndDates(record);
   const start = formatClockTime(startDate);
   const end = formatClockTime(endDate);
   const displayStart =
     record.minutes_since_start > 0 ? start : formatTimeFromMinutes(startTimeMinutes);
 
-  return `${displayStart} - ${end}`;
+  return {
+    end,
+    start: displayStart,
+  };
 }
 
 export function formatRecordsRange(records: DayRecord[], _startTimeMinutes: number) {
+  const parts = formatRecordsRangeParts(records, _startTimeMinutes);
+
+  return parts ? `${parts.start} - ${parts.end}` : '';
+}
+
+export function formatRecordsRangeParts(records: DayRecord[], _startTimeMinutes: number) {
   if (records.length === 0) {
-    return '';
+    return null;
   }
 
   const range = records.reduce(
@@ -73,8 +88,11 @@ export function formatRecordsRange(records: DayRecord[], _startTimeMinutes: numb
   );
 
   if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) {
-    return '';
+    return null;
   }
 
-  return `${formatClockTime(new Date(range.start))} - ${formatClockTime(new Date(range.end))}`;
+  return {
+    end: formatClockTime(new Date(range.end)),
+    start: formatClockTime(new Date(range.start)),
+  };
 }
