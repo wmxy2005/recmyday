@@ -146,5 +146,12 @@ export default {
   },
   recordTypes: {
     mixed: '多类型',
+    builtIn: {
+      work: '工作',
+      study: '学习',
+      exercise: '运动',
+      rest: '休息',
+      other: '其它',
+    },
   },
 } as const;

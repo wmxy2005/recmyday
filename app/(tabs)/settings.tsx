@@ -50,6 +50,7 @@ import {
   recordTypeIconOptions,
   type RecordTypeIconName,
 } from '@/utils/recordTypeIcon';
+import { getRecordTypeName } from '@/utils/recordTypeName';
 
 type SettingSection =
   | 'startTime'
@@ -813,8 +814,11 @@ export default function SettingsScreen() {
                     expandedSection === 'defaultRecordType' && { color: colors.primary },
                   ]}
                 >
-                  {recordTypes.find((type) => type.id === defaultRecordTypeId)?.name ??
-                    t('settings.noData')}
+                  {(() => {
+                    const defaultType = recordTypes.find((type) => type.id === defaultRecordTypeId);
+
+                    return defaultType ? getRecordTypeName(defaultType, t) : t('settings.noData');
+                  })()}
                 </Text>
                 {renderChevron(
                   'defaultRecordType',
@@ -860,7 +864,7 @@ export default function SettingsScreen() {
                             numberOfLines={1}
                             style={[styles.typeCardText, isActive && styles.typeCardTextActive]}
                           >
-                            {recordType.name}
+                            {getRecordTypeName(recordType, t)}
                           </Text>
                           <View style={[styles.typeCardCheck, isActive && styles.radioTypeActive]}>
                             {isActive ? (
@@ -984,7 +988,9 @@ export default function SettingsScreen() {
                           </AnimatedPressable>
                           <View style={styles.typeManageMain}>
                             {isBuiltIn ? (
-                              <Text style={styles.typeLockedName}>{recordType.name}</Text>
+                              <Text style={styles.typeLockedName}>
+                                {getRecordTypeName(recordType, t)}
+                              </Text>
                             ) : (
                               <TextInput
                                 onBlur={() => {

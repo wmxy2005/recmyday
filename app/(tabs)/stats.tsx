@@ -66,6 +66,7 @@ import {
   getRecordIconName,
   getRecordTypeIconName,
 } from '@/utils/recordTypeIcon';
+import { getDayRecordTypeName, getRecordTypeName } from '@/utils/recordTypeName';
 
 const chartMaxHeight = 104;
 const chartMinHeight = 14;
@@ -119,10 +120,6 @@ function getDateFromDayKey(dayKey: string) {
   }
 
   return new Date(year, month - 1, day);
-}
-
-function getRecordTypeName(record: DayRecord) {
-  return record.record_type_name || record.record_type_id;
 }
 
 function getFilterTypeGridColumns(width: number) {
@@ -792,7 +789,7 @@ export default function StatsScreen() {
                   numberOfLines={1}
                   style={[styles.filterTypeText, isActive && styles.filterTypeTextActive]}
                 >
-                  {recordType.name}
+                  {getRecordTypeName(recordType, t)}
                 </Text>
                 <View style={[styles.filterTypeCheck, isActive && styles.radioActive]}>
                   {isActive ? (
@@ -983,7 +980,7 @@ export default function StatsScreen() {
                         size={15}
                       />
                       <Text style={[styles.typeChipText, isActive && styles.typeChipTextActive]}>
-                        {recordType.name}
+                        {getRecordTypeName(recordType, t)}
                       </Text>
                     </AnimatedPressable>
                   );
@@ -1102,7 +1099,7 @@ function SwipeRecordRow({
   };
 
   const recordIconName = getRecordIconName(record);
-  const recordTypeName = getRecordTypeName(record);
+  const recordTypeName = getDayRecordTypeName(record, t);
 
   const renderRecordContent = () => (
     <>

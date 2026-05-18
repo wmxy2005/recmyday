@@ -148,5 +148,12 @@ export default {
   },
   recordTypes: {
     mixed: 'Mixed',
+    builtIn: {
+      work: 'Work',
+      study: 'Study',
+      exercise: 'Exercise',
+      rest: 'Rest',
+      other: 'Other',
+    },
   },
 } as const;

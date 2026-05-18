@@ -49,6 +49,7 @@ import {
   getRecordTypeIconName,
   mixedRecordTypeIconName,
 } from '@/utils/recordTypeIcon';
+import { getDayRecordTypeName, getRecordTypeName } from '@/utils/recordTypeName';
 
 function getIsBeforeStartTime(startTimeMinutes: number) {
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
@@ -75,10 +76,6 @@ function getClockHandsFromRecord(record: DayRecord | null) {
     hour: hours * 30 + minutes * 0.5,
     minute: minutes * 6 + seconds * 0.1,
   };
-}
-
-function getRecordTypeName(record: DayRecord) {
-  return record.record_type_name || record.record_type_id;
 }
 
 export default function HomeScreen() {
@@ -206,7 +203,7 @@ export default function HomeScreen() {
     if (separateRecordEnabled) {
       return {
         iconName: getRecordIconName(todayRecord),
-        label: getRecordTypeName(todayRecord),
+        label: getDayRecordTypeName(todayRecord, t),
       };
     }
 
@@ -222,7 +219,7 @@ export default function HomeScreen() {
     return firstRecord
       ? {
           iconName: getRecordIconName(firstRecord),
-          label: getRecordTypeName(firstRecord),
+          label: getDayRecordTypeName(firstRecord, t),
         }
       : null;
   }, [separateRecordEnabled, t, todayRecord, todayRecords]);
@@ -532,12 +529,14 @@ export default function HomeScreen() {
                     <Text style={styles.recordWeekday}>{formatWeekdayLabel(record.day_key)}</Text>
                   </View>
                   <View style={styles.recordMetaRow}>
-                    <RecordTypeBadge
-                      compact
-                      iconName={getRecordIconName(record)}
-                      label={getRecordTypeName(record)}
-                      style={styles.recordTypeText}
-                    />
+                    {!separateRecordEnabled ? (
+                      <RecordTypeBadge
+                        compact
+                        iconName={getRecordIconName(record)}
+                        label={getDayRecordTypeName(record, t)}
+                        style={styles.recordTypeText}
+                      />
+                    ) : null}
                     <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
                   </View>
                 </View>
@@ -591,7 +590,9 @@ export default function HomeScreen() {
             iconName={recordButtonIconName}
             iconLabel={
               !separateRecordEnabled && activeSeparateRecordStartedAt
-                ? activeSeparateRecordType?.name
+                ? activeSeparateRecordType
+                  ? getRecordTypeName(activeSeparateRecordType, t)
+                  : undefined
                 : undefined
             }
             isRecording={isRecording}
@@ -649,7 +650,7 @@ export default function HomeScreen() {
                   />
                 </View>
                 <View style={styles.typeChoiceCopy}>
-                  <Text style={styles.typeChoiceTitle}>{recordType.name}</Text>
+                  <Text style={styles.typeChoiceTitle}>{getRecordTypeName(recordType, t)}</Text>
                   {isDefault ? (
                     <Text style={styles.typeChoiceMeta}>{t('settings.defaultRecordType')}</Text>
                   ) : null}

@@ -22,11 +22,11 @@ const defaultRecentRecordLimit = 5;
 const defaultSeparateRecordEnabled = false;
 export const defaultRecordTypeId = 'work';
 export const builtInRecordTypes = [
-  { id: 'work', name: '工作', sort_order: 0, icon_name: builtInRecordTypeIcons.work },
-  { id: 'study', name: '学习', sort_order: 1, icon_name: builtInRecordTypeIcons.study },
-  { id: 'exercise', name: '运动', sort_order: 2, icon_name: builtInRecordTypeIcons.exercise },
-  { id: 'rest', name: '休息', sort_order: 3, icon_name: builtInRecordTypeIcons.rest },
-  { id: 'other', name: '其它', sort_order: 4, icon_name: builtInRecordTypeIcons.other },
+  { id: 'work', name: 'work', sort_order: 0, icon_name: builtInRecordTypeIcons.work },
+  { id: 'study', name: 'study', sort_order: 1, icon_name: builtInRecordTypeIcons.study },
+  { id: 'exercise', name: 'exercise', sort_order: 2, icon_name: builtInRecordTypeIcons.exercise },
+  { id: 'rest', name: 'rest', sort_order: 3, icon_name: builtInRecordTypeIcons.rest },
+  { id: 'other', name: 'other', sort_order: 4, icon_name: builtInRecordTypeIcons.other },
 ] as const;
 
 export type RecordType = {
