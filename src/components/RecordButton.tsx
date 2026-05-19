@@ -355,7 +355,7 @@ function RecordButtonComponent({
               <Ionicons
                 color={colors.surface}
                 name={iconName ?? (hasRecord ? 'refresh' : 'add')}
-                size={iconLabel ? 34 : 34}
+                size={30}
               />
               {iconLabel ? (
                 <Text numberOfLines={1} style={styles.iconBadgeLabel}>
@@ -388,11 +388,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       position: 'relative',
     },
     button: {
-      minWidth: 148,
-      height: 76,
+      minWidth: 132,
+      height: 64,
       paddingLeft: spacing.sm,
-      paddingRight: spacing.lg,
-      borderRadius: 38,
+      paddingRight: spacing.md,
+      borderRadius: 32,
       backgroundColor: colors.primary,
       flexDirection: 'row',
       alignItems: 'center',
@@ -406,15 +406,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       left: 0,
       right: 0,
       bottom: '100%',
-      marginBottom: spacing.md,
+      marginBottom: spacing.sm,
       alignItems: 'center',
     },
     cancelPill: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm + 2,
-      borderRadius: 22,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm + 1,
+      borderRadius: 18,
       borderWidth: 1,
       borderColor: colors.danger,
       ...shadow,
@@ -434,11 +434,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.xs + 2,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm + 2,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm + 1,
     },
     cancelPillLabel: {
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '900',
     },
     recorded: {
@@ -451,9 +451,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: colors.info,
     },
     iconBadge: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
+      width: 50,
+      height: 50,
+      borderRadius: 25,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.2)',
@@ -465,10 +465,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     iconBadgeLabel: {
       color: colors.surface,
-      maxWidth: 52,
-      fontSize: 11,
+      maxWidth: 44,
+      fontSize: 10,
       fontWeight: '900',
-      lineHeight: 13,
+      lineHeight: 12,
       textAlign: 'center',
     },
     textGroup: {
@@ -478,13 +478,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     label: {
       color: colors.surface,
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '900',
       lineHeight: 18,
     },
     time: {
       color: 'rgba(255,255,255,0.82)',
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '800',
       marginTop: 2,
     },

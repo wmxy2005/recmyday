@@ -53,12 +53,12 @@ const darkColors = {
 export const colors = lightColors;
 
 export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-  xxl: 32,
+  xs: 3,
+  sm: 6,
+  md: 10,
+  lg: 14,
+  xl: 18,
+  xxl: 24,
 };
 
 export const radius = {
@@ -70,29 +70,29 @@ export const radius = {
 
 export const typography = {
   screenTitle: {
-    fontSize: 31,
+    fontSize: 28,
     fontWeight: '900',
     letterSpacing: 0,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
   },
   rowTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
   },
   rowMeta: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
 } as const;
 
 export const componentSizes = {
-  headerIconButton: 40,
-  settingsIconTile: 46,
-  tabBarHeight: 76,
-  bottomActionOffset: 92,
+  headerIconButton: 36,
+  settingsIconTile: 40,
+  tabBarHeight: 64,
+  bottomActionOffset: 78,
 } as const;
 
 export const cardVariants = {

@@ -12,7 +12,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { useAppTheme } from '@/theme';
+import { componentSizes, useAppTheme } from '@/theme';
 
 type TabIconName = keyof typeof Ionicons.glyphMap;
 
@@ -114,13 +114,13 @@ export default function TabLayout() {
           backgroundColor: colors.surface,
           borderTopColor: 'transparent',
           position: 'absolute',
-          left: 16,
-          right: 16,
-          bottom: 12,
-          height: 76,
-          paddingBottom: 10,
-          paddingTop: 8,
-          borderRadius: 28,
+          left: 14,
+          right: 14,
+          bottom: 10,
+          height: componentSizes.tabBarHeight,
+          paddingBottom: 7,
+          paddingTop: 6,
+          borderRadius: 24,
           borderWidth: 1,
           borderColor: colors.border,
           shadowColor: isDark ? '#000000' : '#10231B',
@@ -131,7 +131,7 @@ export default function TabLayout() {
           zIndex: 20,
         },
         tabBarItemStyle: {
-          height: 58,
+          height: 50,
           paddingVertical: 0,
           alignItems: 'center',
           justifyContent: 'center',
@@ -141,9 +141,9 @@ export default function TabLayout() {
           marginBottom: 0,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '800',
-          lineHeight: 14,
+          lineHeight: 13,
         },
       }}
     >
@@ -184,9 +184,9 @@ const styles = StyleSheet.create({
   pressedHalo: {
     position: 'absolute',
     top: 2,
-    width: 94,
-    height: 54,
-    borderRadius: 27,
+    width: 86,
+    height: 46,
+    borderRadius: 23,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.28,
     shadowRadius: 18,
@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
-    minHeight: 56,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 0,

@@ -52,10 +52,10 @@ export function RecordTypeBadge({
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
-    minHeight: 25,
+    minHeight: 23,
     maxWidth: '100%',
     paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
@@ -63,8 +63,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   badgeCompact: {
-    minHeight: 22,
-    paddingVertical: 3,
+    minHeight: 20,
+    paddingVertical: 2,
     gap: 3,
   },
   text: {

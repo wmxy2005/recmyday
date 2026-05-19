@@ -20,7 +20,7 @@ import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
 import { DayRecordsPanel } from '@/components/DayRecordsPanel';
 import { type DayRecord, type RecordType, getMonthRecords, getRecordTypes } from '@/data/database';
 import { readRecordSettings } from '@/hooks/useRecordSettings';
-import { radius, spacing, useAppTheme } from '@/theme';
+import { componentSizes, radius, spacing, typography, useAppTheme } from '@/theme';
 import {
   addMonths,
   formatDayKey,
@@ -33,8 +33,8 @@ import { getRecordMinutesColor } from '@/utils/recordColor';
 import { allRecordTypesFilterIconName, getRecordTypeIconName } from '@/utils/recordTypeIcon';
 import { getRecordTypeName } from '@/utils/recordTypeName';
 
-const chartMaxHeight = 104;
-const chartMinHeight = 14;
+const chartMaxHeight = 86;
+const chartMinHeight = 12;
 const filterTypeGridBaseColumns = 3;
 const filterTypeGridBreakpoints = [
   { minWidth: 1024, columns: 10 },
@@ -544,11 +544,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   content: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: 132,
+    paddingTop: spacing.sm,
+    paddingBottom: 108,
   },
   titleHeader: {
-    minHeight: 54,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -557,14 +557,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   screenTitle: {
     flex: 1,
     color: colors.text,
-    fontSize: 31,
-    fontWeight: '900',
-    letterSpacing: 0,
+    ...typography.screenTitle,
   },
   headerIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: componentSizes.headerIconButton,
+    height: componentSizes.headerIconButton,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
@@ -587,7 +585,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     opacity: 0.55,
   },
   monthSelector: {
-    minHeight: 62,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -596,13 +594,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     ...shadow,
   },
   monthButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -616,25 +614,25 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   monthTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
-    lineHeight: 24,
+    lineHeight: 22,
     includeFontPadding: false,
   },
   summary: {
-    minHeight: 142,
-    padding: spacing.xl,
+    minHeight: 112,
+    padding: spacing.lg,
     borderRadius: radius.xl,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     ...shadow,
     overflow: 'hidden',
   },
   summaryLabel: {
     color: colors.surface,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '900',
     marginBottom: spacing.sm,
     textShadowColor: 'rgba(0,0,0,0.12)',
@@ -643,23 +641,23 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   summaryValue: {
     color: colors.surface,
-    fontSize: 42,
+    fontSize: 34,
     fontWeight: '900',
-    lineHeight: 48,
+    lineHeight: 40,
     textShadowColor: 'rgba(0,0,0,0.16)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 3,
   },
   chart: {
-    width: 126,
-    height: 104,
+    width: 106,
+    height: 86,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'flex-end',
-    gap: 9,
+    gap: 7,
   },
   chartBar: {
-    width: 12,
+    width: 10,
     borderRadius: 4,
   },
   weekHeader: {
@@ -673,13 +671,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     flex: 1,
     color: colors.textSoft,
     textAlign: 'center',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
   },
   calendarCard: {
-    paddingTop: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.md,
     borderRadius: radius.xl,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -687,7 +685,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     ...shadow,
   },
   calendarGrid: {
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   calendarWeek: {
     flexDirection: 'row',
@@ -724,7 +722,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   dayNumber: {
     color: colors.text,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '900',
     textAlign: 'center',
   },
@@ -752,10 +750,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     right: 0,
     bottom: 0,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xl,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     backgroundColor: colors.surface,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: -10 },
@@ -773,7 +771,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   filterTypeCard: {
     width: 96,
-    minHeight: 74,
+    minHeight: 62,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
@@ -794,8 +792,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     elevation: 5,
   },
   filterTypeIcon: {
-    width: 28,
-    height: 26,
+    width: 24,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -805,7 +803,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   filterTypeText: {
     maxWidth: '100%',
     color: colors.textSoft,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
   },
   filterTypeTextActive: {
@@ -823,7 +821,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     backgroundColor: 'transparent',
   },
   filterRow: {
-    minHeight: 58,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -839,16 +837,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   filterTitle: {
     color: colors.text,
-    fontSize: 16,
-    fontWeight: '900',
+    ...typography.rowTitle,
   },
   filterTitleActive: {
     color: colors.primary,
   },
   radio: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -861,18 +858,18 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   sheetGrabber: {
     alignSelf: 'center',
-    width: 56,
-    height: 6,
+    width: 48,
+    height: 5,
     borderRadius: 999,
     backgroundColor: colors.borderStrong,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   sheetTitleGroup: {
     flex: 1,
@@ -881,19 +878,19 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   sheetTitle: {
     color: colors.text,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '900',
-    lineHeight: 28,
+    lineHeight: 25,
   },
   sheetSubtitle: {
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
   },
   sheetCloseButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surfaceAlt,

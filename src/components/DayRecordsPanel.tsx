@@ -222,8 +222,8 @@ export function DayRecordsPanel({
   );
   const canCreateRecord =
     dayKey !== null && (!separateRecordEnabled || dayRecords.length === 0);
-  const dayRecordsListMaxHeight = Math.max(120, Math.round(windowHeight * 0.72 - 230));
-  const recordEditorFormMaxHeight = Math.max(200, Math.round(windowHeight * 0.9 - 250));
+  const dayRecordsListMaxHeight = Math.max(120, Math.round(windowHeight * 0.72 - 196));
+  const recordEditorFormMaxHeight = Math.max(200, Math.round(windowHeight * 0.9 - 218));
   const draftRecordType = recordTypes.find((recordType) => recordType.id === draftRecordTypeId);
 
   const refreshAfterChange = useCallback(async () => {
@@ -821,10 +821,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       bottom: 0,
       maxHeight: '72%',
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.xl,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.lg,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
       backgroundColor: colors.surface,
       shadowColor: colors.shadow,
       shadowOffset: { width: 0, height: -10 },
@@ -834,18 +834,18 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     sheetGrabber: {
       alignSelf: 'center',
-      width: 56,
-      height: 6,
+      width: 48,
+      height: 5,
       borderRadius: 999,
       backgroundColor: colors.borderStrong,
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
     },
     sheetHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.md,
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
     },
     sheetTitleGroup: {
       flex: 1,
@@ -854,19 +854,19 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     sheetTitle: {
       color: colors.text,
-      fontSize: 22,
+      fontSize: 20,
       fontWeight: '900',
-      lineHeight: 28,
+      lineHeight: 25,
     },
     sheetSubtitle: {
       color: colors.muted,
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '800',
     },
     sheetCloseButton: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.surfaceAlt,
@@ -891,7 +891,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       elevation: 2,
     },
     swipeRecordShell: {
-      minHeight: 78,
+      minHeight: 66,
       borderRadius: radius.lg,
       overflow: 'hidden',
       backgroundColor: colors.danger,
@@ -908,9 +908,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       justifyContent: 'center',
     },
     recordDeleteActionButton: {
-      width: 62,
-      height: 62,
-      borderRadius: radius.lg,
+      width: 54,
+      height: 54,
+      borderRadius: radius.md,
       alignItems: 'center',
       justifyContent: 'center',
       gap: 3,
@@ -926,18 +926,18 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       fontWeight: '900',
     },
     recordPopupRow: {
-      minHeight: 88,
+      minHeight: 72,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.md,
-      paddingHorizontal: spacing.md,
+      gap: spacing.sm,
+      paddingHorizontal: spacing.sm,
       paddingVertical: spacing.sm,
       borderRadius: radius.lg - 1,
       backgroundColor: colors.surfaceElevated,
     },
     recordPopupType: {
-      width: 58,
-      minHeight: 56,
+      width: 50,
+      minHeight: 48,
       paddingHorizontal: 5,
       paddingVertical: 6,
       borderRadius: 14,
@@ -967,7 +967,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     recordPopupTime: {
       color: colors.text,
-      fontSize: 17,
+      fontSize: 15,
       fontWeight: '900',
     },
     recordPopupMeta: {
@@ -976,20 +976,20 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       fontWeight: '700',
     },
     recordPopupValue: {
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '900',
       flexShrink: 0,
     },
     recordEditButton: {
-      width: 28,
-      height: 44,
+      width: 26,
+      height: 38,
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: -6,
     },
     createRecordButton: {
-      height: 58,
-      borderRadius: 22,
+      height: 50,
+      borderRadius: 18,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
@@ -1004,7 +1004,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     createRecordText: {
       color: colors.surface,
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: '900',
     },
     createRecordHint: {
@@ -1020,10 +1020,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       right: 0,
       bottom: 0,
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.xl + spacing.sm,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.lg + spacing.sm,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
       backgroundColor: colors.surface,
       shadowColor: colors.shadow,
       shadowOffset: { width: 0, height: -10 },
@@ -1036,7 +1036,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: spacing.md,
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
     },
     editorFormScroll: {
       flexGrow: 0,
@@ -1044,10 +1044,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       minHeight: 0,
     },
     editorForm: {
-      gap: spacing.md,
+      gap: spacing.sm,
     },
     editorInputRow: {
-      minHeight: 74,
+      minHeight: 62,
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: spacing.md,
@@ -1065,7 +1065,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: colors.border,
     },
     editorTypeHeader: {
-      minHeight: 68,
+      minHeight: 58,
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.md,
@@ -1088,11 +1088,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderTopWidth: 1,
       borderTopColor: colors.border,
       paddingHorizontal: spacing.md,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.md,
     },
     editorTypeCard: {
-      minHeight: 74,
+      minHeight: 62,
       alignItems: 'center',
       justifyContent: 'center',
       gap: 3,
@@ -1113,8 +1113,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       elevation: 5,
     },
     editorTypeCardIcon: {
-      width: 28,
-      height: 26,
+      width: 24,
+      height: 22,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1124,7 +1124,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     editorTypeCardText: {
       maxWidth: '100%',
       color: colors.textSoft,
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '900',
     },
     editorTypeCardTextActive: {
@@ -1153,7 +1153,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       overflow: 'hidden',
     },
     editorTimeRow: {
-      minHeight: 68,
+      minHeight: 58,
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: spacing.md,
@@ -1168,20 +1168,20 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       gap: spacing.md,
     },
     editorInputIcon: {
-      width: 42,
-      height: 42,
-      borderRadius: 13,
+      width: 36,
+      height: 36,
+      borderRadius: 11,
       alignItems: 'center',
       justifyContent: 'center',
     },
     editorInputLabel: {
       color: colors.text,
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '900',
     },
     editorTimeValue: {
       color: colors.text,
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: '900',
       flexShrink: 0,
     },
@@ -1192,26 +1192,26 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       paddingBottom: spacing.md,
     },
     editorTimePicker: {
-      minHeight: 178,
+      minHeight: 154,
       borderWidth: 0,
     },
     editorDurationValue: {
       color: colors.text,
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '900',
       flexShrink: 0,
     },
     editorSheetActions: {
       flexDirection: 'row',
       gap: spacing.md,
-      marginTop: spacing.xl,
+      marginTop: spacing.lg,
     },
     cancelRecordButtonContainer: {
       flex: 1,
     },
     cancelRecordButton: {
-      height: 54,
-      borderRadius: 20,
+      height: 48,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.surfaceAlt,
@@ -1220,22 +1220,22 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     cancelRecordText: {
       color: colors.textSoft,
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '900',
     },
     saveRecordButtonContainer: {
       flex: 1.5,
     },
     saveRecordButton: {
-      height: 54,
-      borderRadius: 20,
+      height: 48,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.primary,
     },
     saveRecordText: {
       color: colors.surface,
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '900',
     },
     emptyRecords: {

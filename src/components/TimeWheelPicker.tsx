@@ -13,7 +13,7 @@ import {
 
 import { radius, spacing } from '@/theme';
 
-const wheelItemHeight = 46;
+const wheelItemHeight = 40;
 const wheelVisibleItems = 5;
 
 const hourOptions = Array.from({ length: 24 }, (_, index) => pad2(index));
@@ -166,7 +166,7 @@ const WheelPicker = memo(function WheelPicker({
               <Text
                 style={[
                   styles.wheelItemText,
-                  isSelected && { color: accentColor, fontSize: 31, opacity: 1 },
+                  isSelected && { color: accentColor, fontSize: 27, opacity: 1 },
                 ]}
               >
                 {item}
@@ -236,7 +236,7 @@ export function TimeWheelPicker({
 
 const styles = StyleSheet.create({
   timePickerPanel: {
-    minHeight: 190,
+    minHeight: 164,
     borderRadius: radius.lg,
     backgroundColor: 'rgba(255,255,255,0.66)',
     borderWidth: 1,
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   wheelPicker: {
-    width: 112,
+    width: 96,
     height: wheelItemHeight * wheelVisibleItems,
     overflow: 'hidden',
   },
@@ -271,14 +271,14 @@ const styles = StyleSheet.create({
   },
   wheelItemText: {
     color: '#9EA8B3',
-    fontSize: 21,
+    fontSize: 18,
     fontWeight: '800',
-    lineHeight: 36,
+    lineHeight: 32,
     opacity: 0.76,
     textAlign: 'center',
   },
   wheelSeparator: {
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: '900',
     marginHorizontal: spacing.sm,
   },
