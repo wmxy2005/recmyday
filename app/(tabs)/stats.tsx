@@ -67,6 +67,7 @@ export default function StatsScreen() {
   );
   const [recordTypeFilterVisible, setRecordTypeFilterVisible] = useState(false);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
+  const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [dayRecordsSheetVisible, setDayRecordsSheetVisible] = useState(false);
   const [filterTypeGridWidth, setFilterTypeGridWidth] = useState(0);
@@ -107,6 +108,7 @@ export default function StatsScreen() {
       sessionSelectedRecordTypeIds = null;
     }
     setRecordUnit(settings.recordUnit);
+    setSeparateRecordEnabled(settings.separateRecordEnabled);
     setIsLoading(false);
   }, [db, monthDate]);
 
@@ -461,7 +463,7 @@ export default function StatsScreen() {
               ]}
             >
               <Ionicons
-                color={!isFilteringRecordTypes ? colors.surface : colors.textSoft}
+                color={!isFilteringRecordTypes ? colors.primary : colors.textSoft}
                 name={allRecordTypesFilterIconName}
                 size={22}
               />
@@ -495,24 +497,20 @@ export default function StatsScreen() {
                 style={[
                   styles.filterTypeCard,
                   filterTypeCardWidth !== undefined && { width: filterTypeCardWidth },
-                  {
-                    backgroundColor: typeColor,
-                    borderColor: typeColor,
-                    shadowColor: typeColor,
-                  },
                   isActive && [
                     styles.filterTypeCardActive,
-                    {
-                      backgroundColor: typeColor,
-                      borderColor: typeColor,
-                      shadowColor: typeColor,
-                    },
+                    { borderColor: typeColor, shadowColor: typeColor },
                   ],
                 ]}
               >
-                <View style={[styles.filterTypeIcon, isActive && styles.filterTypeIconActive]}>
+                <View
+                  style={[
+                    styles.filterTypeIcon,
+                    isActive && styles.filterTypeIconActive,
+                  ]}
+                >
                   <Ionicons
-                    color={colors.surface}
+                    color={typeColor}
                     name={getRecordTypeIconName(recordType)}
                     size={22}
                   />
@@ -521,8 +519,8 @@ export default function StatsScreen() {
                   numberOfLines={1}
                   style={[
                     styles.filterTypeText,
-                    { color: colors.surface },
                     isActive && styles.filterTypeTextActive,
+                    isActive && { color: typeColor },
                   ]}
                 >
                   {getRecordTypeName(recordType, t)}
@@ -551,6 +549,7 @@ export default function StatsScreen() {
         onExitComplete={handleDayRecordsExitComplete}
         onRecordsChanged={loadData}
         recordTypeIds={selectedRecordTypeIds}
+        separateRecordEnabled={separateRecordEnabled}
         visible={selectedDayKey !== null && dayRecordsSheetVisible}
       />
     </SafeAreaView>
@@ -809,7 +808,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     borderColor: colors.border,
   },
   filterTypeCardActive: {
-    backgroundColor: colors.primary,
     borderColor: colors.primary,
     shadowColor: colors.primaryDark,
     shadowOffset: { width: 0, height: 8 },
@@ -833,7 +831,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '900',
   },
   filterTypeTextActive: {
-    color: colors.surface,
+    color: colors.primary,
   },
   filterTypeCheck: {
     position: 'absolute',

@@ -34,6 +34,7 @@ const emptyPillRect: PillRect = { left: 0, top: 0, right: 0, bottom: 0 };
 
 type RecordButtonProps = {
   animatedStyle: AnimatedStyle<ViewStyle>;
+  backgroundColor?: string;
   cancelLabel?: string;
   disabled: boolean;
   hasRecord: boolean;
@@ -52,6 +53,7 @@ type RecordButtonProps = {
 
 function RecordButtonComponent({
   animatedStyle,
+  backgroundColor,
   cancelLabel = 'Cancel',
   disabled,
   hasRecord,
@@ -347,6 +349,10 @@ function RecordButtonComponent({
               tone === 'danger' && styles.danger,
               tone === 'success' && styles.success,
               hasRecord && styles.recorded,
+              backgroundColor && {
+                backgroundColor,
+                shadowColor: backgroundColor,
+              },
               isRecording && styles.disabled,
               buttonPressStyle,
             ]}
@@ -355,7 +361,7 @@ function RecordButtonComponent({
               <Ionicons
                 color={colors.surface}
                 name={iconName ?? (hasRecord ? 'refresh' : 'add')}
-                size={30}
+                size={32}
               />
               {iconLabel ? (
                 <Text numberOfLines={1} style={styles.iconBadgeLabel}>
@@ -388,17 +394,21 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       position: 'relative',
     },
     button: {
-      minWidth: 132,
+      minWidth: 152,
       height: 64,
-      paddingLeft: spacing.sm,
-      paddingRight: spacing.md,
+      paddingLeft: 0,
+      paddingRight: spacing.lg,
       borderRadius: 32,
       backgroundColor: colors.primary,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: spacing.sm,
-      ...shadow,
+      gap: spacing.md,
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+      elevation: 2,
       overflow: 'hidden',
     },
     cancelPillWrapper: {
@@ -451,12 +461,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: colors.info,
     },
     iconBadge: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
+      width: 54,
+      height: 54,
+      borderRadius: 27,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.2)',
+      marginLeft: -4,
       zIndex: 1,
     },
     iconBadgeWithLabel: {

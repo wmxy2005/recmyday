@@ -76,6 +76,7 @@ export type DayRecordsPanelProps = {
   onExitComplete?: () => void;
   onRecordsChanged?: () => void;
   recordTypeIds?: string[] | null;
+  separateRecordEnabled: boolean;
 };
 
 function pad2(value: number) {
@@ -121,6 +122,7 @@ export function DayRecordsPanel({
   onExitComplete,
   onRecordsChanged,
   recordTypeIds = null,
+  separateRecordEnabled,
 }: DayRecordsPanelProps) {
   const { t } = useTranslation();
   const theme = useAppTheme();
@@ -132,7 +134,6 @@ export function DayRecordsPanel({
   const [dayRecords, setDayRecords] = useState<DayRecord[]>([]);
   const [recordTypes, setRecordTypes] = useState<RecordType[]>([]);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
-  const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
   const [defaultRecordTypeId, setDefaultRecordTypeId] = useState('work');
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
@@ -182,7 +183,6 @@ export function DayRecordsPanel({
     ]);
 
     setRecordUnit(settings.recordUnit);
-    setSeparateRecordEnabled(settings.separateRecordEnabled);
     setStartTimeMinutes(settings.startTimeMinutes);
     setDefaultRecordTypeId(settings.defaultRecordTypeId);
     setRecordTypes(nextRecordTypes);
@@ -227,6 +227,14 @@ export function DayRecordsPanel({
   const recordEditorFormMaxHeight = Math.max(200, Math.round(windowHeight * 0.9 - 218));
   const draftRecordType = recordTypes.find((recordType) => recordType.id === draftRecordTypeId);
   const draftRecordTypeColor = draftRecordType ? getRecordTypeColor(draftRecordType) : colors.primary;
+  const editingRecord = dayRecords.find((record) => record.id === editingRecordId);
+  const editorDayLabel = dayKey ? formatDayLabel(dayKey) : t('stats.noSelectedDay');
+  const editorSubtitle =
+    editingRecordId !== null && editingRecord
+      ? `${editorDayLabel} · ${t('stats.updatedAt', {
+          time: formatRecordDateTime(editingRecord.updated_at, t('stats.noData')),
+        })}`
+      : editorDayLabel;
 
   const refreshAfterChange = useCallback(async () => {
     await loadDayRecords();
@@ -497,9 +505,7 @@ export function DayRecordsPanel({
             <Text style={styles.sheetTitle}>
               {editingRecordId === null ? t('stats.newRecord') : t('stats.editRecord')}
             </Text>
-            <Text style={styles.sheetSubtitle}>
-              {dayKey ? formatDayLabel(dayKey) : t('stats.noSelectedDay')}
-            </Text>
+            <Text style={styles.sheetSubtitle}>{editorSubtitle}</Text>
           </View>
           <AnimatedPressable
             accessibilityLabel={t('stats.closeRecords')}
@@ -546,9 +552,9 @@ export function DayRecordsPanel({
               pressedScale={0.985}
               style={styles.editorTypeHeader}
             >
-              <View style={[styles.editorInputIcon, { backgroundColor: draftRecordTypeColor }]}>
+              <View style={[styles.editorInputIcon, styles.editorTypeInputIcon]}>
                 <Ionicons
-                  color={colors.surface}
+                  color={draftRecordTypeColor}
                   name={
                     draftRecordType ? getRecordTypeIconName(draftRecordType) : 'bookmark-outline'
                   }
@@ -596,18 +602,9 @@ export function DayRecordsPanel({
                       style={[
                         styles.editorTypeCard,
                         editorTypeCardWidth !== undefined && { width: editorTypeCardWidth },
-                        {
-                          backgroundColor: typeColor,
-                          borderColor: typeColor,
-                          shadowColor: typeColor,
-                        },
                         isActive && [
                           styles.editorTypeCardActive,
-                          {
-                            backgroundColor: typeColor,
-                            borderColor: typeColor,
-                            shadowColor: typeColor,
-                          },
+                          { borderColor: typeColor, shadowColor: typeColor },
                         ],
                       ]}
                     >
@@ -618,7 +615,7 @@ export function DayRecordsPanel({
                         ]}
                       >
                         <Ionicons
-                          color={colors.surface}
+                          color={typeColor}
                           name={getRecordTypeIconName(recordType)}
                           size={22}
                         />
@@ -627,8 +624,8 @@ export function DayRecordsPanel({
                         numberOfLines={1}
                         style={[
                           styles.editorTypeCardText,
-                          { color: colors.surface },
                           isActive && styles.editorTypeCardTextActive,
+                          isActive && { color: typeColor },
                         ]}
                       >
                         {getRecordTypeName(recordType, t)}
@@ -769,23 +766,15 @@ function SwipeRecordRow({
   const renderRecordContent = () => (
     <>
       <View
-        style={[
-          styles.recordPopupType,
-          { backgroundColor: recordTypeColor },
-        ]}
+        style={styles.recordPopupType}
       >
-        <Ionicons color={colors.surface} name={recordIconName} size={22} />
-        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordPopupTypeText}>
-          {recordTypeName}
-        </Text>
+        <Ionicons color={recordTypeColor} name={recordIconName} size={22} />
       </View>
       <View style={styles.recordPopupCopy}>
         <Text style={styles.recordPopupTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
         <View style={styles.recordPopupMetaRow}>
-          <Text style={styles.recordPopupMeta}>
-            {t('stats.updatedAt', {
-              time: formatRecordDateTime(record.updated_at, t('stats.noData')),
-            })}
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordPopupMeta}>
+            {recordTypeName}
           </Text>
         </View>
       </View>
@@ -961,23 +950,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: colors.surfaceElevated,
     },
     recordPopupType: {
-      width: 50,
-      minHeight: 48,
-      paddingHorizontal: 5,
-      paddingVertical: 6,
-      borderRadius: 14,
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 2,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
       flexShrink: 0,
-    },
-    recordPopupTypeText: {
-      width: '100%',
-      color: colors.surface,
-      fontSize: 11,
-      fontWeight: '900',
-      lineHeight: 14,
-      textAlign: 'center',
     },
     recordPopupCopy: {
       flex: 1,
@@ -1129,7 +1110,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: colors.border,
     },
     editorTypeCardActive: {
-      backgroundColor: colors.primary,
       borderColor: colors.primary,
       shadowColor: colors.primaryDark,
       shadowOffset: { width: 0, height: 8 },
@@ -1153,7 +1133,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       fontWeight: '900',
     },
     editorTypeCardTextActive: {
-      color: colors.surface,
+      color: colors.primary,
     },
     editorTypeCardCheck: {
       position: 'absolute',
@@ -1198,6 +1178,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderRadius: 11,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    editorTypeInputIcon: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     editorInputLabel: {
       color: colors.text,
@@ -1285,8 +1270,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       paddingHorizontal: spacing.sm,
       paddingVertical: 3,
       borderRadius: 999,
-      backgroundColor: colors.infoSoft,
-      color: colors.info,
+      backgroundColor: colors.primarySoft,
+      color: colors.primary,
       fontSize: 11,
       fontWeight: '800',
       overflow: 'hidden',

@@ -898,26 +898,20 @@ export default function SettingsScreen() {
                           style={[
                             styles.typeCard,
                             defaultTypeCardWidth !== undefined && { width: defaultTypeCardWidth },
-                            {
-                              backgroundColor: typeColor,
-                              borderColor: typeColor,
-                              shadowColor: typeColor,
-                            },
                             isActive && [
                               styles.typeCardActive,
-                              {
-                                backgroundColor: typeColor,
-                                borderColor: typeColor,
-                                shadowColor: typeColor,
-                              },
+                              { borderColor: typeColor, shadowColor: typeColor },
                             ],
                           ]}
                         >
                           <View
-                            style={[styles.typeCardIcon, isActive && styles.typeCardIconActive]}
+                            style={[
+                              styles.typeCardIcon,
+                              isActive && styles.typeCardIconActive,
+                            ]}
                           >
                             <Ionicons
-                              color={colors.surface}
+                              color={typeColor}
                               name={iconName}
                               size={22}
                             />
@@ -926,8 +920,8 @@ export default function SettingsScreen() {
                             numberOfLines={1}
                             style={[
                               styles.typeCardText,
-                              { color: colors.surface },
                               isActive && styles.typeCardTextActive,
+                              isActive && { color: typeColor },
                             ]}
                           >
                             {getRecordTypeName(recordType, t)}
@@ -1021,10 +1015,10 @@ export default function SettingsScreen() {
                       pressedScale={0.94}
                       style={[
                         styles.typeColorSelectButton,
-                        { backgroundColor: newRecordTypeColor, borderColor: newRecordTypeColor },
+                        { borderColor: newRecordTypeColor },
                       ]}
                     >
-                      <Ionicons color={colors.surface} name="color-palette" size={21} />
+                      <Ionicons color={newRecordTypeColor} name="color-palette" size={21} />
                     </AnimatedPressable>
                     <TextInput
                       onChangeText={setNewRecordTypeName}
@@ -1058,12 +1052,7 @@ export default function SettingsScreen() {
 
                     return (
                       <View key={recordType.id}>
-                        <View
-                          style={[
-                            styles.typeManageRow,
-                            { backgroundColor: typeColor, borderColor: typeColor },
-                          ]}
-                        >
+                        <View style={styles.typeManageRow}>
                           <AnimatedPressable
                             accessibilityLabel={t('settings.changeRecordTypeIcon')}
                             accessibilityRole="button"
@@ -1076,12 +1065,11 @@ export default function SettingsScreen() {
                             pressedScale={isBuiltIn ? 1 : 0.92}
                             style={[
                               styles.typeManageIcon,
-                              { backgroundColor: typeColor, borderColor: typeColor },
                               isBuiltIn && styles.typeManageIconLocked,
                             ]}
                           >
                             <Ionicons
-                              color={colors.surface}
+                              color={typeColor}
                               name={iconName}
                               size={22}
                             />
@@ -1097,11 +1085,11 @@ export default function SettingsScreen() {
                             pressedScale={isBuiltIn ? 1 : 0.92}
                             style={[
                               styles.typeManageColor,
-                              { backgroundColor: typeColor, borderColor: typeColor },
+                              { borderColor: typeColor },
                               isBuiltIn && styles.typeManageIconLocked,
                             ]}
                           >
-                            <Ionicons color={colors.surface} name="color-palette" size={17} />
+                            <Ionicons color={typeColor} name="color-palette" size={17} />
                           </AnimatedPressable>
                           <View style={styles.typeManageMain}>
                             {isBuiltIn ? (
@@ -1122,11 +1110,11 @@ export default function SettingsScreen() {
                                 onSubmitEditing={() => {
                                   void handleSaveRecordTypeName(recordType);
                                 }}
-                                style={[styles.typeNameInput, { color: colors.surface }]}
+                                style={styles.typeNameInput}
                                 value={recordTypeDrafts[recordType.id] ?? recordType.name}
                               />
                             )}
-                            <Text style={[styles.typeMeta, { color: colors.surface }]}>
+                            <Text style={styles.typeMeta}>
                               {isBuiltIn
                                 ? t('settings.builtInRecordType')
                                 : isDefault
@@ -1663,6 +1651,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderRadius: radius.md,
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: colors.surfaceAlt,
       borderWidth: 1,
       flexShrink: 0,
     },
@@ -1736,7 +1725,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: colors.border,
     },
     typeCardActive: {
-      backgroundColor: colors.primary,
       borderColor: colors.primary,
       shadowColor: colors.primaryDark,
       shadowOffset: { width: 0, height: 8 },
@@ -1792,9 +1780,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primarySoft,
+      backgroundColor: colors.surfaceAlt,
       borderWidth: 1,
-      borderColor: colors.primary,
+      borderColor: colors.border,
       flexShrink: 0,
     },
     typeManageColor: {
@@ -1803,6 +1791,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: colors.surfaceAlt,
       borderWidth: 1,
       flexShrink: 0,
     },

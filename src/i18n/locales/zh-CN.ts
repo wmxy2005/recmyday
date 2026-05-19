@@ -8,6 +8,7 @@ export default {
     title: 'Rec My Day',
     startTime: '开始时间 {{time}}',
     today: '今天',
+    todayRecordTitle: '今天时间记录',
     dayRecordTitle: '{{day}}的时间记录',
     notRecorded: '尚未记录',
     recordAvailable: '{{weekday}} · 可记录',

@@ -25,7 +25,6 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
 import { DayRecordsPanel } from '@/components/DayRecordsPanel';
 import { RecordButton } from '@/components/RecordButton';
-import { RecordTypeBadge } from '@/components/RecordTypeBadge';
 import {
   type DayRecord,
   type RecordType,
@@ -54,11 +53,7 @@ import {
   parseRecordTime,
 } from '@/utils/recordFormat';
 import { getRecordColor, getRecordTypeColor } from '@/utils/recordTypeColor';
-import {
-  getRecordIconName,
-  getRecordTypeIconName,
-  mixedRecordTypeIconName,
-} from '@/utils/recordTypeIcon';
+import { getRecordIconName, getRecordTypeIconName } from '@/utils/recordTypeIcon';
 import { getDayRecordTypeName, getRecordTypeName } from '@/utils/recordTypeName';
 
 const recordTypeGridBaseColumns = 3;
@@ -231,56 +226,6 @@ export default function HomeScreen() {
       ? formatRecordRangeParts(todayRecord, startTimeMinutes)
       : null
     : formatRecordsRangeParts(todayRecords, startTimeMinutes);
-  const todayTypeInfos = useMemo(() => {
-    if (!todayRecord) {
-      return [];
-    }
-
-    if (separateRecordEnabled) {
-      return [
-        {
-          id: todayRecord.record_type_id,
-          color: getRecordColor(todayRecord),
-          iconName: getRecordIconName(todayRecord),
-          label: getDayRecordTypeName(todayRecord, t),
-        },
-      ];
-    }
-
-    const recordsByTypeId = new Map<string, DayRecord>();
-    for (const record of todayRecords) {
-      if (!recordsByTypeId.has(record.record_type_id)) {
-        recordsByTypeId.set(record.record_type_id, record);
-      }
-    }
-
-    const uniqueRecords = Array.from(recordsByTypeId.values());
-    if (uniqueRecords.length >= 3) {
-      const firstRecord = uniqueRecords[0];
-
-      return [
-        {
-          id: firstRecord.record_type_id,
-          color: getRecordColor(firstRecord),
-          iconName: getRecordIconName(firstRecord),
-          label: getDayRecordTypeName(firstRecord, t),
-        },
-        {
-          id: 'mixed',
-          color: colors.primary,
-          iconName: mixedRecordTypeIconName,
-          label: t('recordTypes.mixed'),
-        },
-      ];
-    }
-
-    return uniqueRecords.map((record) => ({
-      id: record.record_type_id,
-      color: getRecordColor(record),
-      iconName: getRecordIconName(record),
-      label: getDayRecordTypeName(record, t),
-    }));
-  }, [colors.primary, separateRecordEnabled, t, todayRecord, todayRecords]);
 
   const shouldShowRecordButtonArea =
     !isLoading &&
@@ -430,6 +375,13 @@ export default function HomeScreen() {
   const activeSeparateRecordType = activeSeparateRecordTypeId
     ? recordTypes.find((recordType) => recordType.id === activeSeparateRecordTypeId)
     : null;
+  const defaultRecordType = recordTypes.find((recordType) => recordType.id === defaultRecordTypeId);
+  const defaultRecordTypeColor = defaultRecordType ? getRecordTypeColor(defaultRecordType) : colors.primary;
+  const recordButtonBackgroundColor = separateRecordEnabled
+    ? defaultRecordTypeColor
+    : activeSeparateRecordType
+      ? getRecordTypeColor(activeSeparateRecordType)
+      : defaultRecordTypeColor;
   const recordButtonLabel = separateRecordEnabled
     ? todayRecord
       ? t('home.updateRecord')
@@ -503,16 +455,7 @@ export default function HomeScreen() {
                 <ActivityIndicator color={colors.primary} style={styles.loadingIndicator} />
               ) : todayRecord ? (
                 <>
-                  {todayDisplayRangeParts ? (
-                    <View style={styles.todayMetaRow}>
-                      <View style={styles.todayTimeFields}>
-                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
-                        <Text style={styles.todayTimeSeparator}>-</Text>
-                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
-                        <Ionicons color={colors.textSoft} name="create" size={17} />
-                      </View>
-                    </View>
-                  ) : null}
+                  <Text style={styles.todayRecordTitle}>{t('home.todayRecordTitle')}</Text>
                   {recordUnit === 'minutes' ? (
                     <View style={styles.minutesRow}>
                       <Text style={styles.minutesNumber}>
@@ -528,18 +471,14 @@ export default function HomeScreen() {
                       )}
                     </Text>
                   )}
-                  {todayTypeInfos.length > 0 ? (
-                    <View style={styles.todayTypeRow}>
-                      {todayTypeInfos.map((typeInfo) => (
-                        <RecordTypeBadge
-                          color={typeInfo.color}
-                          compact
-                          iconName={typeInfo.iconName}
-                          key={typeInfo.id}
-                          label={typeInfo.label}
-                          style={styles.todayTypeBadge}
-                        />
-                      ))}
+                  {todayDisplayRangeParts ? (
+                    <View style={styles.todayMetaRow}>
+                      <View style={styles.todayTimeFields}>
+                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
+                        <Text style={styles.todayTimeSeparator}>-</Text>
+                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
+                        <Ionicons color={colors.textSoft} name="create" size={17} />
+                      </View>
                     </View>
                   ) : null}
                 </>
@@ -593,22 +532,25 @@ export default function HomeScreen() {
           ) : (
             previousRecords.map((record) => (
               <View key={record.id} style={styles.recordRow}>
-                <View>
+                {!separateRecordEnabled ? (
+                  <View style={styles.recordTypeIconBlock}>
+                    <Ionicons
+                      color={getRecordColor(record)}
+                      name={getRecordIconName(record)}
+                      size={24}
+                      style={styles.recordTypeIconCircle}
+                    />
+                    <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordTypeIconText}>
+                      {getDayRecordTypeName(record, t)}
+                    </Text>
+                  </View>
+                ) : null}
+                <View style={styles.recordMain}>
                   <View style={styles.recordDateRow}>
                     <Text style={styles.recordDate}>{formatDayLabel(record.day_key)}</Text>
                     <Text style={styles.recordWeekday}>{formatWeekdayLabel(record.day_key)}</Text>
                   </View>
                   <View style={styles.recordMetaRow}>
-                    {!separateRecordEnabled ? (
-                      <RecordTypeBadge
-                        active
-                        color={getRecordColor(record)}
-                        compact
-                        iconName={getRecordIconName(record)}
-                        label={getDayRecordTypeName(record, t)}
-                        style={styles.recordTypeText}
-                      />
-                    ) : null}
                     <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
                   </View>
                 </View>
@@ -659,6 +601,7 @@ export default function HomeScreen() {
         <View pointerEvents="box-none" style={styles.actionArea}>
           <RecordButton
             animatedStyle={recordButtonAnimatedStyle}
+            backgroundColor={recordButtonBackgroundColor}
             cancelLabel={t('home.cancelRecord')}
             disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
             hasRecord={separateRecordEnabled && Boolean(todayRecord)}
@@ -719,24 +662,20 @@ export default function HomeScreen() {
                 style={[
                   styles.typeChoiceCard,
                   recordTypeCardWidth !== undefined && { width: recordTypeCardWidth },
-                  {
-                    backgroundColor: typeColor,
-                    borderColor: typeColor,
-                    shadowColor: typeColor,
-                  },
                   isDefault && [
                     styles.typeChoiceCardDefault,
-                    {
-                      backgroundColor: typeColor,
-                      borderColor: typeColor,
-                      shadowColor: typeColor,
-                    },
+                    { borderColor: typeColor, shadowColor: typeColor },
                   ],
                 ]}
               >
-                <View style={[styles.typeChoiceIcon, isDefault && styles.typeChoiceIconDefault]}>
+                <View
+                  style={[
+                    styles.typeChoiceIcon,
+                    isDefault && styles.typeChoiceIconDefault,
+                  ]}
+                >
                   <Ionicons
-                    color={colors.surface}
+                    color={typeColor}
                     name={getRecordTypeIconName(recordType)}
                     size={22}
                   />
@@ -745,8 +684,8 @@ export default function HomeScreen() {
                   numberOfLines={1}
                   style={[
                     styles.typeChoiceTitle,
-                    { color: colors.surface },
                     isDefault && styles.typeChoiceTitleDefault,
+                    isDefault && { color: typeColor },
                   ]}
                 >
                   {getRecordTypeName(recordType, t)}
@@ -775,6 +714,7 @@ export default function HomeScreen() {
         onClose={() => setDayRecordsPanelVisible(false)}
         onExitComplete={() => setDayRecordsPanelDayKey(null)}
         onRecordsChanged={loadData}
+        separateRecordEnabled={separateRecordEnabled}
         visible={dayRecordsPanelVisible}
       />
     </SafeAreaView>
@@ -805,7 +745,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     flex: 1,
     minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     flexWrap: 'wrap',
     gap: spacing.sm,
     paddingRight: spacing.md,
@@ -814,6 +754,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     color: colors.textSoft,
     fontSize: 14,
     fontWeight: '700',
+    marginBottom: 4,
   },
   title: {
     color: colors.text,
@@ -869,18 +810,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     minWidth: 0,
     paddingRight: spacing.md,
   },
-  todayTypeRow: {
+  todayRecordTitle: {
     alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 0,
-    flexWrap: 'wrap',
-    gap: spacing.xs,
     marginTop: spacing.sm,
-  },
-  todayTypeBadge: {
-    flexShrink: 0,
-    maxWidth: undefined,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
   },
   loadingIndicator: {
     alignSelf: 'flex-start',
@@ -894,10 +829,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   minutesNumber: {
     color: colors.text,
-    fontSize: 48,
+    fontSize: 52,
     fontWeight: '900',
     letterSpacing: 0,
-    lineHeight: 54,
+    lineHeight: 58,
   },
   minutesUnit: {
     color: colors.text,
@@ -1047,11 +982,47 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
+  recordTypeIconBlock: {
+    alignSelf: 'stretch',
+    width: 64,
+    marginLeft: -spacing.md,
+    marginVertical: -spacing.sm,
+    borderTopLeftRadius: radius.md - 1,
+    borderBottomLeftRadius: radius.md - 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 0,
+    paddingHorizontal: 4,
+    backgroundColor: colors.surface,
+    flexShrink: 0,
+  },
+  recordTypeIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surfaceElevated,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    overflow: 'hidden',
+  },
+  recordTypeIconText: {
+    maxWidth: '100%',
+    color: colors.textSoft,
+    fontSize: 10,
+    fontWeight: '900',
+    lineHeight: 10,
+    marginTop: -7,
+  },
   recordDateRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  recordMain: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: -spacing.xs,
   },
   recordDate: {
     color: colors.text,
@@ -1062,8 +1033,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: colors.infoSoft,
-    color: colors.info,
+    backgroundColor: colors.primarySoft,
+    color: colors.primary,
     fontSize: 11,
     fontWeight: '800',
     overflow: 'hidden',
@@ -1079,9 +1050,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     flexWrap: 'wrap',
     gap: spacing.xs,
     marginTop: 5,
-  },
-  recordTypeText: {
-    flexShrink: 0,
   },
   recordValueRow: {
     flexDirection: 'row',
@@ -1209,7 +1177,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     borderColor: colors.border,
   },
   typeChoiceCardDefault: {
-    backgroundColor: colors.primary,
     borderColor: colors.primary,
     shadowColor: colors.primaryDark,
     shadowOffset: { width: 0, height: 8 },
@@ -1233,7 +1200,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '900',
   },
   typeChoiceTitleDefault: {
-    color: colors.surface,
+    color: colors.primary,
   },
   typeChoiceCheck: {
     position: 'absolute',

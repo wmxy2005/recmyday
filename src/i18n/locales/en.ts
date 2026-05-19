@@ -8,6 +8,7 @@ export default {
     title: 'Rec My Day',
     startTime: 'Start {{time}}',
     today: 'Today',
+    todayRecordTitle: "Today's time record",
     dayRecordTitle: '{{day}} record',
     notRecorded: 'No record',
     recordAvailable: '{{weekday}} - Ready',
