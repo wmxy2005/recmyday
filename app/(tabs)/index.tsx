@@ -53,6 +53,7 @@ import {
   formatRecordsRangeParts,
   parseRecordTime,
 } from '@/utils/recordFormat';
+import { getRecordColor, getRecordTypeColor } from '@/utils/recordTypeColor';
 import {
   getRecordIconName,
   getRecordTypeIconName,
@@ -239,6 +240,7 @@ export default function HomeScreen() {
       return [
         {
           id: todayRecord.record_type_id,
+          color: getRecordColor(todayRecord),
           iconName: getRecordIconName(todayRecord),
           label: getDayRecordTypeName(todayRecord, t),
         },
@@ -259,11 +261,13 @@ export default function HomeScreen() {
       return [
         {
           id: firstRecord.record_type_id,
+          color: getRecordColor(firstRecord),
           iconName: getRecordIconName(firstRecord),
           label: getDayRecordTypeName(firstRecord, t),
         },
         {
           id: 'mixed',
+          color: colors.primary,
           iconName: mixedRecordTypeIconName,
           label: t('recordTypes.mixed'),
         },
@@ -272,10 +276,11 @@ export default function HomeScreen() {
 
     return uniqueRecords.map((record) => ({
       id: record.record_type_id,
+      color: getRecordColor(record),
       iconName: getRecordIconName(record),
       label: getDayRecordTypeName(record, t),
     }));
-  }, [separateRecordEnabled, t, todayRecord, todayRecords]);
+  }, [colors.primary, separateRecordEnabled, t, todayRecord, todayRecords]);
 
   const shouldShowRecordButtonArea =
     !isLoading &&
@@ -527,6 +532,7 @@ export default function HomeScreen() {
                     <View style={styles.todayTypeRow}>
                       {todayTypeInfos.map((typeInfo) => (
                         <RecordTypeBadge
+                          color={typeInfo.color}
                           compact
                           iconName={typeInfo.iconName}
                           key={typeInfo.id}
@@ -596,16 +602,11 @@ export default function HomeScreen() {
                     {!separateRecordEnabled ? (
                       <RecordTypeBadge
                         active
+                        color={getRecordColor(record)}
                         compact
                         iconName={getRecordIconName(record)}
                         label={getDayRecordTypeName(record, t)}
-                        style={[
-                          styles.recordTypeText,
-                          {
-                            backgroundColor: getRecordMinutesColor(record.minutes_since_start),
-                            borderColor: getRecordMinutesColor(record.minutes_since_start),
-                          },
-                        ]}
+                        style={styles.recordTypeText}
                       />
                     ) : null}
                     <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
@@ -707,6 +708,7 @@ export default function HomeScreen() {
         <View onLayout={handleRecordTypeGridLayout} style={styles.typeChoiceGrid}>
           {recordTypes.map((recordType) => {
             const isDefault = recordType.id === defaultRecordTypeId;
+            const typeColor = getRecordTypeColor(recordType);
 
             return (
               <AnimatedPressable
@@ -717,23 +719,47 @@ export default function HomeScreen() {
                 style={[
                   styles.typeChoiceCard,
                   recordTypeCardWidth !== undefined && { width: recordTypeCardWidth },
-                  isDefault && styles.typeChoiceCardDefault,
+                  {
+                    backgroundColor: typeColor,
+                    borderColor: typeColor,
+                    shadowColor: typeColor,
+                  },
+                  isDefault && [
+                    styles.typeChoiceCardDefault,
+                    {
+                      backgroundColor: typeColor,
+                      borderColor: typeColor,
+                      shadowColor: typeColor,
+                    },
+                  ],
                 ]}
               >
                 <View style={[styles.typeChoiceIcon, isDefault && styles.typeChoiceIconDefault]}>
                   <Ionicons
-                    color={isDefault ? colors.surface : colors.primary}
+                    color={colors.surface}
                     name={getRecordTypeIconName(recordType)}
                     size={22}
                   />
                 </View>
                 <Text
                   numberOfLines={1}
-                  style={[styles.typeChoiceTitle, isDefault && styles.typeChoiceTitleDefault]}
+                  style={[
+                    styles.typeChoiceTitle,
+                    { color: colors.surface },
+                    isDefault && styles.typeChoiceTitleDefault,
+                  ]}
                 >
                   {getRecordTypeName(recordType, t)}
                 </Text>
-                <View style={[styles.typeChoiceCheck, isDefault && styles.typeChoiceCheckDefault]}>
+                <View
+                  style={[
+                    styles.typeChoiceCheck,
+                    isDefault && [
+                      styles.typeChoiceCheckDefault,
+                      { backgroundColor: typeColor, borderColor: typeColor },
+                    ],
+                  ]}
+                >
                   {isDefault ? (
                     <Ionicons color={colors.surface} name="checkmark" size={14} />
                   ) : null}

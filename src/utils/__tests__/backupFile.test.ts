@@ -55,6 +55,7 @@ describe('backup file format', () => {
   it('round-trips custom record types in the export payload', () => {
     const recordTypes = [
       {
+        color: '#14B8A6',
         id: 'custom-focus',
         icon_name: 'bulb-outline' as const,
         name: '专注',
@@ -94,7 +95,34 @@ describe('backup file format', () => {
     expect(parsed.recordTypes).toEqual([
       {
         ...recordTypes[0],
+        color: '#3B82F6',
         icon_name: 'pricetag-outline',
+      },
+    ]);
+  });
+
+  it('adds fallback colors to old custom record types', () => {
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        icon_name: 'bulb-outline' as const,
+        name: '涓撴敞',
+        sort_order: 5,
+        is_builtin: 0,
+      },
+    ];
+    const file = createExportFile(
+      [{ ...record, record_type_id: 'custom-focus' }],
+      '2026-05-17T10:31:00.000Z',
+      recordTypes,
+    );
+
+    const parsed = parseExportFileData(JSON.stringify(file));
+
+    expect(parsed.recordTypes).toEqual([
+      {
+        ...recordTypes[0],
+        color: '#3B82F6',
       },
     ]);
   });
@@ -126,5 +154,35 @@ describe('backup file format', () => {
     const parsed = parseExportFileData(JSON.stringify(file));
 
     expect(parsed.recordTypes[0].icon_name).toBe('pricetag-outline');
+  });
+
+  it('normalizes invalid imported record type colors', () => {
+    const exportedAt = '2026-05-17T10:31:00.000Z';
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        color: '#000000',
+        icon_name: 'bulb-outline',
+        name: '涓撴敞',
+        sort_order: 5,
+        is_builtin: 0,
+      },
+    ];
+    const payload = {
+      app: 'recmyday' as const,
+      schemaVersion: 4 as const,
+      exportedAt,
+      recordCount: 1,
+      recordTypes,
+      records: [{ ...record, record_type_id: 'custom-focus' }],
+    };
+    const file = {
+      ...payload,
+      checksum: createExportChecksum(payload as never),
+    };
+
+    const parsed = parseExportFileData(JSON.stringify(file));
+
+    expect(parsed.recordTypes[0].color).toBe('#3B82F6');
   });
 });

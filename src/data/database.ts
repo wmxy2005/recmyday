@@ -7,6 +7,13 @@ import {
   type RecordTypeIconName,
 } from '@/utils/recordTypeIcon';
 import {
+  builtInRecordTypeColors,
+  fallbackRecordTypeColor,
+  normalizeRecordTypeColor,
+  recordTypeColorOptions,
+  type RecordTypeColor,
+} from '@/utils/recordTypeColor';
+import {
   formatMonthKey,
   getCalendarDayKey,
   getMinutesSinceDayStart,
@@ -15,18 +22,48 @@ import {
 
 export const databaseName = 'rec-my-day.db';
 
-const databaseVersion = 8;
+const databaseVersion = 9;
 const defaultStartTimeMinutes = 0;
 const defaultRecordUnit: RecordUnit = 'minutes';
 const defaultRecentRecordLimit = 5;
 const defaultSeparateRecordEnabled = false;
 export const defaultRecordTypeId = 'work';
 export const builtInRecordTypes = [
-  { id: 'work', name: 'work', sort_order: 0, icon_name: builtInRecordTypeIcons.work },
-  { id: 'study', name: 'study', sort_order: 1, icon_name: builtInRecordTypeIcons.study },
-  { id: 'exercise', name: 'exercise', sort_order: 2, icon_name: builtInRecordTypeIcons.exercise },
-  { id: 'rest', name: 'rest', sort_order: 3, icon_name: builtInRecordTypeIcons.rest },
-  { id: 'other', name: 'other', sort_order: 4, icon_name: builtInRecordTypeIcons.other },
+  {
+    id: 'work',
+    name: 'work',
+    sort_order: 0,
+    icon_name: builtInRecordTypeIcons.work,
+    color: builtInRecordTypeColors.work,
+  },
+  {
+    id: 'study',
+    name: 'study',
+    sort_order: 1,
+    icon_name: builtInRecordTypeIcons.study,
+    color: builtInRecordTypeColors.study,
+  },
+  {
+    id: 'exercise',
+    name: 'exercise',
+    sort_order: 2,
+    icon_name: builtInRecordTypeIcons.exercise,
+    color: builtInRecordTypeColors.exercise,
+  },
+  {
+    id: 'rest',
+    name: 'rest',
+    sort_order: 3,
+    icon_name: builtInRecordTypeIcons.rest,
+    color: builtInRecordTypeColors.rest,
+  },
+  {
+    id: 'other',
+    name: 'other',
+    sort_order: 4,
+    icon_name: builtInRecordTypeIcons.other,
+    color: builtInRecordTypeColors.other,
+  },
 ] as const;
 
 export type RecordType = {
@@ -35,6 +72,7 @@ export type RecordType = {
   sort_order: number;
   is_builtin: number;
   icon_name: RecordTypeIconName;
+  color: RecordTypeColor;
   created_at: string;
   updated_at: string;
   record_count?: number;
@@ -49,19 +87,21 @@ export type DayRecord = {
   record_type_id: string;
   record_type_name: string;
   record_type_icon_name: RecordTypeIconName;
+  record_type_color: RecordTypeColor;
   created_at: string;
   updated_at: string;
 };
 
 export type ImportDayRecord = Omit<
   DayRecord,
-  'id' | 'record_type_name' | 'record_type_icon_name' | 'record_type_id'
+  'id' | 'record_type_name' | 'record_type_icon_name' | 'record_type_color' | 'record_type_id'
 > & {
   record_type_id?: string;
 };
 
 export type ImportRecordType = Pick<RecordType, 'id' | 'name' | 'sort_order' | 'is_builtin'> & {
   icon_name?: RecordTypeIconName;
+  color?: RecordTypeColor;
 };
 
 type SettingRow = {
@@ -85,14 +125,16 @@ async function seedBuiltInRecordTypes(db: SQLiteDatabase) {
           name,
           sort_order,
           icon_name,
+          color,
           is_builtin,
           updated_at
         )
-        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           sort_order = excluded.sort_order,
           icon_name = excluded.icon_name,
+          color = excluded.color,
           is_builtin = 1,
           updated_at = CURRENT_TIMESTAMP
       `,
@@ -100,13 +142,15 @@ async function seedBuiltInRecordTypes(db: SQLiteDatabase) {
       type.name,
       type.sort_order,
       type.icon_name,
+      type.color,
     );
   }
 }
 
-async function repairRecordTypeIcons(db: SQLiteDatabase) {
+async function repairRecordTypeMetadata(db: SQLiteDatabase) {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(record_types)');
   const hasIconName = columns.some((column) => column.name === 'icon_name');
+  const hasColor = columns.some((column) => column.name === 'color');
 
   if (!hasIconName) {
     await db.runAsync(
@@ -114,11 +158,18 @@ async function repairRecordTypeIcons(db: SQLiteDatabase) {
     );
   }
 
+  if (!hasColor) {
+    await db.runAsync(
+      `ALTER TABLE record_types ADD COLUMN color TEXT NOT NULL DEFAULT '${fallbackRecordTypeColor}'`,
+    );
+  }
+
   await seedBuiltInRecordTypes(db);
 
-  const recordTypes = await db.getAllAsync<Pick<RecordType, 'id' | 'icon_name' | 'is_builtin'>>(
-    'SELECT id, icon_name, is_builtin FROM record_types',
-  );
+  const recordTypes = await db.getAllAsync<
+    Pick<RecordType, 'id' | 'icon_name' | 'color' | 'is_builtin'>
+  >('SELECT id, icon_name, color, is_builtin FROM record_types ORDER BY sort_order ASC, created_at ASC');
+  let customColorIndex = 0;
 
   for (const recordType of recordTypes) {
     if (recordType.is_builtin) {
@@ -126,11 +177,22 @@ async function repairRecordTypeIcons(db: SQLiteDatabase) {
     }
 
     const normalizedIconName = normalizeRecordTypeIconName(recordType.icon_name);
+    const colorFallback = recordTypeColorOptions[customColorIndex % recordTypeColorOptions.length];
+    const normalizedColor = normalizeRecordTypeColor(recordType.color, colorFallback);
+    customColorIndex += 1;
 
     if (normalizedIconName !== recordType.icon_name) {
       await db.runAsync(
         'UPDATE record_types SET icon_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_builtin = 0',
         normalizedIconName,
+        recordType.id,
+      );
+    }
+
+    if (normalizedColor !== recordType.color) {
+      await db.runAsync(
+        'UPDATE record_types SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_builtin = 0',
+        normalizedColor,
         recordType.id,
       );
     }
@@ -159,7 +221,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
   const currentVersion = result?.user_version ?? 0;
 
   if (currentVersion >= databaseVersion) {
-    await repairRecordTypeIcons(db);
+    await repairRecordTypeMetadata(db);
     return;
   }
 
@@ -266,6 +328,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
         sort_order INTEGER NOT NULL,
         is_builtin INTEGER NOT NULL DEFAULT 0,
         icon_name TEXT NOT NULL DEFAULT 'pricetag-outline',
+        color TEXT NOT NULL DEFAULT '${fallbackRecordTypeColor}',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -327,7 +390,30 @@ export async function migrateDatabase(db: SQLiteDatabase) {
     );
   }
 
-  await repairRecordTypeIcons(db);
+  if (currentVersion < 9) {
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(record_types)');
+    const hasColor = columns.some((column) => column.name === 'color');
+
+    if (!hasColor) {
+      await db.runAsync(
+        `ALTER TABLE record_types ADD COLUMN color TEXT NOT NULL DEFAULT '${fallbackRecordTypeColor}'`,
+      );
+    }
+
+    const customTypes = await db.getAllAsync<Pick<RecordType, 'id'>>(
+      'SELECT id FROM record_types WHERE is_builtin = 0 ORDER BY sort_order ASC, created_at ASC',
+    );
+
+    for (const [index, recordType] of customTypes.entries()) {
+      await db.runAsync(
+        'UPDATE record_types SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_builtin = 0',
+        recordTypeColorOptions[index % recordTypeColorOptions.length],
+        recordType.id,
+      );
+    }
+  }
+
+  await repairRecordTypeMetadata(db);
 
   await db.execAsync(`PRAGMA user_version = ${databaseVersion}`);
 }
@@ -480,9 +566,11 @@ export async function createRecordType(
   db: SQLiteDatabase,
   name: string,
   iconName = fallbackRecordTypeIconName,
+  color = fallbackRecordTypeColor,
 ) {
   const normalizedName = normalizeRecordTypeName(name);
   const normalizedIconName = normalizeRecordTypeIconName(iconName);
+  const normalizedColor = normalizeRecordTypeColor(color);
 
   if (!normalizedName) {
     throw new Error('Record type name is required');
@@ -502,14 +590,16 @@ export async function createRecordType(
         sort_order,
         is_builtin,
         icon_name,
+        color,
         updated_at
       )
-      VALUES (?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
     `,
     id,
     normalizedName,
     sortOrder,
     normalizedIconName,
+    normalizedColor,
   );
 
   return id;
@@ -527,6 +617,22 @@ export async function updateRecordTypeIcon(
       WHERE id = ? AND is_builtin = 0
     `,
     normalizeRecordTypeIconName(iconName),
+    id,
+  );
+}
+
+export async function updateRecordTypeColor(
+  db: SQLiteDatabase,
+  id: string,
+  color: string,
+) {
+  await db.runAsync(
+    `
+      UPDATE record_types
+      SET color = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND is_builtin = 0
+    `,
+    normalizeRecordTypeColor(color),
     id,
   );
 }
@@ -794,7 +900,8 @@ export async function getRecordByDayKey(db: SQLiteDatabase, dayKey: string) {
       SELECT
         day_records.*,
         record_types.name AS record_type_name,
-        record_types.icon_name AS record_type_icon_name
+        record_types.icon_name AS record_type_icon_name,
+        record_types.color AS record_type_color
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       WHERE day_key = ?
@@ -811,7 +918,8 @@ export async function getDayRecordsByDayKey(db: SQLiteDatabase, dayKey: string) 
       SELECT
         day_records.*,
         record_types.name AS record_type_name,
-        record_types.icon_name AS record_type_icon_name
+        record_types.icon_name AS record_type_icon_name,
+        record_types.color AS record_type_color
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       WHERE day_key = ?
@@ -844,7 +952,8 @@ export async function getRecentRecords(db: SQLiteDatabase, limit = 8) {
       SELECT
         day_records.*,
         record_types.name AS record_type_name,
-        record_types.icon_name AS record_type_icon_name
+        record_types.icon_name AS record_type_icon_name,
+        record_types.color AS record_type_color
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       ORDER BY day_key DESC, timestamp_ms DESC
@@ -860,7 +969,8 @@ export async function getAllDayRecords(db: SQLiteDatabase) {
       SELECT
         day_records.*,
         record_types.name AS record_type_name,
-        record_types.icon_name AS record_type_icon_name
+        record_types.icon_name AS record_type_icon_name,
+        record_types.color AS record_type_color
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       ORDER BY day_key ASC, timestamp_ms ASC, day_records.id ASC
@@ -892,13 +1002,15 @@ export async function replaceAllDayRecords(
             sort_order,
             is_builtin,
             icon_name,
+            color,
             updated_at
           )
-          VALUES (?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             sort_order = excluded.sort_order,
             icon_name = excluded.icon_name,
+            color = excluded.color,
             updated_at = CURRENT_TIMESTAMP
           WHERE record_types.is_builtin = 0
         `,
@@ -906,6 +1018,7 @@ export async function replaceAllDayRecords(
         normalizedName,
         recordType.sort_order,
         normalizedIconName,
+        normalizeRecordTypeColor(recordType.color),
       );
     }
 
@@ -948,7 +1061,8 @@ export async function getMonthRecords(db: SQLiteDatabase, monthDate: Date) {
       SELECT
         day_records.*,
         record_types.name AS record_type_name,
-        record_types.icon_name AS record_type_icon_name
+        record_types.icon_name AS record_type_icon_name,
+        record_types.color AS record_type_color
       FROM day_records
       LEFT JOIN record_types ON record_types.id = day_records.record_type_id
       WHERE day_key LIKE ?

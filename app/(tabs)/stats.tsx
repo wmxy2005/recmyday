@@ -30,6 +30,7 @@ import {
   type RecordUnit,
 } from '@/utils/date';
 import { getRecordMinutesColor } from '@/utils/recordColor';
+import { getRecordTypeColor } from '@/utils/recordTypeColor';
 import { allRecordTypesFilterIconName, getRecordTypeIconName } from '@/utils/recordTypeIcon';
 import { getRecordTypeName } from '@/utils/recordTypeName';
 
@@ -482,6 +483,7 @@ export default function StatsScreen() {
           </AnimatedPressable>
           {recordTypes.map((recordType) => {
             const isActive = Boolean(selectedRecordTypeIds?.includes(recordType.id));
+            const typeColor = getRecordTypeColor(recordType);
 
             return (
               <AnimatedPressable
@@ -493,23 +495,47 @@ export default function StatsScreen() {
                 style={[
                   styles.filterTypeCard,
                   filterTypeCardWidth !== undefined && { width: filterTypeCardWidth },
-                  isActive && styles.filterTypeCardActive,
+                  {
+                    backgroundColor: typeColor,
+                    borderColor: typeColor,
+                    shadowColor: typeColor,
+                  },
+                  isActive && [
+                    styles.filterTypeCardActive,
+                    {
+                      backgroundColor: typeColor,
+                      borderColor: typeColor,
+                      shadowColor: typeColor,
+                    },
+                  ],
                 ]}
               >
                 <View style={[styles.filterTypeIcon, isActive && styles.filterTypeIconActive]}>
                   <Ionicons
-                    color={isActive ? colors.surface : colors.textSoft}
+                    color={colors.surface}
                     name={getRecordTypeIconName(recordType)}
                     size={22}
                   />
                 </View>
                 <Text
                   numberOfLines={1}
-                  style={[styles.filterTypeText, isActive && styles.filterTypeTextActive]}
+                  style={[
+                    styles.filterTypeText,
+                    { color: colors.surface },
+                    isActive && styles.filterTypeTextActive,
+                  ]}
                 >
                   {getRecordTypeName(recordType, t)}
                 </Text>
-                <View style={[styles.filterTypeCheck, isActive && styles.radioActive]}>
+                <View
+                  style={[
+                    styles.filterTypeCheck,
+                    isActive && [
+                      styles.radioActive,
+                      { backgroundColor: typeColor, borderColor: typeColor },
+                    ],
+                  ]}
+                >
                   {isActive ? (
                     <Ionicons color={colors.surface} name="checkmark" size={14} />
                   ) : null}

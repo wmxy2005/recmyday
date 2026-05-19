@@ -47,6 +47,7 @@ import {
   type RecordUnit,
 } from '@/utils/date';
 import { getRecordMinutesColor } from '@/utils/recordColor';
+import { getRecordColor, getRecordTypeColor } from '@/utils/recordTypeColor';
 import {
   formatRecordDateTime,
   formatRecordRange,
@@ -225,6 +226,7 @@ export function DayRecordsPanel({
   const dayRecordsListMaxHeight = Math.max(120, Math.round(windowHeight * 0.72 - 196));
   const recordEditorFormMaxHeight = Math.max(200, Math.round(windowHeight * 0.9 - 218));
   const draftRecordType = recordTypes.find((recordType) => recordType.id === draftRecordTypeId);
+  const draftRecordTypeColor = draftRecordType ? getRecordTypeColor(draftRecordType) : colors.primary;
 
   const refreshAfterChange = useCallback(async () => {
     await loadDayRecords();
@@ -544,9 +546,9 @@ export function DayRecordsPanel({
               pressedScale={0.985}
               style={styles.editorTypeHeader}
             >
-              <View style={[styles.editorInputIcon, { backgroundColor: colors.primarySoft }]}>
+              <View style={[styles.editorInputIcon, { backgroundColor: draftRecordTypeColor }]}>
                 <Ionicons
-                  color={colors.primary}
+                  color={colors.surface}
                   name={
                     draftRecordType ? getRecordTypeIconName(draftRecordType) : 'bookmark-outline'
                   }
@@ -556,7 +558,7 @@ export function DayRecordsPanel({
               <Text
                 style={[
                   styles.editorInputLabel,
-                  expandedEditorSection === 'type' && { color: colors.primary },
+                  expandedEditorSection === 'type' && { color: draftRecordTypeColor },
                 ]}
               >
                 {t('stats.recordType')}
@@ -565,7 +567,7 @@ export function DayRecordsPanel({
                 numberOfLines={1}
                 style={[
                   styles.editorTypeValue,
-                  expandedEditorSection === 'type' && { color: colors.primary },
+                  expandedEditorSection === 'type' && { color: draftRecordTypeColor },
                 ]}
               >
                 {draftRecordType
@@ -573,7 +575,7 @@ export function DayRecordsPanel({
                   : t('stats.allRecordTypes')}
               </Text>
               <Ionicons
-                color={expandedEditorSection === 'type' ? colors.primary : colors.mutedSubtle}
+                color={expandedEditorSection === 'type' ? draftRecordTypeColor : colors.mutedSubtle}
                 name={expandedEditorSection === 'type' ? 'chevron-up' : 'chevron-forward'}
                 size={21}
               />
@@ -582,6 +584,7 @@ export function DayRecordsPanel({
               <View onLayout={handleEditorTypeGridLayout} style={styles.editorTypeCardGrid}>
                 {recordTypes.map((recordType) => {
                   const isActive = draftRecordTypeId === recordType.id;
+                  const typeColor = getRecordTypeColor(recordType);
 
                   return (
                     <AnimatedPressable
@@ -593,7 +596,19 @@ export function DayRecordsPanel({
                       style={[
                         styles.editorTypeCard,
                         editorTypeCardWidth !== undefined && { width: editorTypeCardWidth },
-                        isActive && styles.editorTypeCardActive,
+                        {
+                          backgroundColor: typeColor,
+                          borderColor: typeColor,
+                          shadowColor: typeColor,
+                        },
+                        isActive && [
+                          styles.editorTypeCardActive,
+                          {
+                            backgroundColor: typeColor,
+                            borderColor: typeColor,
+                            shadowColor: typeColor,
+                          },
+                        ],
                       ]}
                     >
                       <View
@@ -603,7 +618,7 @@ export function DayRecordsPanel({
                         ]}
                       >
                         <Ionicons
-                          color={isActive ? colors.surface : colors.textSoft}
+                          color={colors.surface}
                           name={getRecordTypeIconName(recordType)}
                           size={22}
                         />
@@ -612,12 +627,21 @@ export function DayRecordsPanel({
                         numberOfLines={1}
                         style={[
                           styles.editorTypeCardText,
+                          { color: colors.surface },
                           isActive && styles.editorTypeCardTextActive,
                         ]}
                       >
                         {getRecordTypeName(recordType, t)}
                       </Text>
-                      <View style={[styles.editorTypeCardCheck, isActive && styles.radioActive]}>
+                      <View
+                        style={[
+                          styles.editorTypeCardCheck,
+                          isActive && [
+                            styles.radioActive,
+                            { backgroundColor: typeColor, borderColor: typeColor },
+                          ],
+                        ]}
+                      >
                         {isActive ? (
                           <Ionicons color={colors.surface} name="checkmark" size={14} />
                         ) : null}
@@ -739,6 +763,7 @@ function SwipeRecordRow({
   };
 
   const recordIconName = getRecordIconName(record);
+  const recordTypeColor = getRecordColor(record);
   const recordTypeName = getDayRecordTypeName(record, t);
 
   const renderRecordContent = () => (
@@ -746,7 +771,7 @@ function SwipeRecordRow({
       <View
         style={[
           styles.recordPopupType,
-          { backgroundColor: getRecordMinutesColor(record.minutes_since_start) },
+          { backgroundColor: recordTypeColor },
         ]}
       >
         <Ionicons color={colors.surface} name={recordIconName} size={22} />

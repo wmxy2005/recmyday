@@ -34,6 +34,7 @@ import {
   setRecordUnit as saveRecordUnit,
   setSeparateRecordEnabled as saveSeparateRecordEnabled,
   setStartTimeMinutes,
+  updateRecordTypeColor,
   updateRecordTypeIcon,
   updateRecordTypeName,
   type ImportDayRecord,
@@ -44,6 +45,12 @@ import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { cardVariants, componentSizes, radius, spacing, typography, useAppTheme } from '@/theme';
 import { createExportFile, maxImportFileBytes, parseExportFileData } from '@/utils/backupFile';
 import { formatTimeFromMinutes, type RecordUnit } from '@/utils/date';
+import {
+  fallbackRecordTypeColor,
+  getRecordTypeColor,
+  recordTypeColorOptions,
+  type RecordTypeColor,
+} from '@/utils/recordTypeColor';
 import {
   fallbackRecordTypeIconName,
   getRecordTypeIconName,
@@ -187,8 +194,11 @@ export default function SettingsScreen() {
   const [newRecordTypeName, setNewRecordTypeName] = useState('');
   const [newRecordTypeIconName, setNewRecordTypeIconName] =
     useState<RecordTypeIconName>(fallbackRecordTypeIconName);
+  const [newRecordTypeColor, setNewRecordTypeColor] =
+    useState<RecordTypeColor>(fallbackRecordTypeColor);
   const [recordTypeDrafts, setRecordTypeDrafts] = useState<Record<string, string>>({});
   const [expandedIconPickerId, setExpandedIconPickerId] = useState<string | null>(null);
+  const [expandedColorPickerId, setExpandedColorPickerId] = useState<string | null>(null);
   const [defaultTypeGridWidth, setDefaultTypeGridWidth] = useState(0);
   const [isTransferring, setIsTransferring] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingSection | null>(null);
@@ -323,10 +333,12 @@ export default function SettingsScreen() {
       return;
     }
 
-    await createRecordType(db, name, newRecordTypeIconName);
+    await createRecordType(db, name, newRecordTypeIconName, newRecordTypeColor);
     setNewRecordTypeName('');
     setNewRecordTypeIconName(fallbackRecordTypeIconName);
+    setNewRecordTypeColor(fallbackRecordTypeColor);
     setExpandedIconPickerId(null);
+    setExpandedColorPickerId(null);
     await reloadRecordTypes();
   };
 
@@ -378,11 +390,17 @@ export default function SettingsScreen() {
     await reloadRecordTypes();
   };
 
+  const handleRecordTypeColorChange = async (recordType: RecordType, color: RecordTypeColor) => {
+    await updateRecordTypeColor(db, recordType.id, color);
+    await reloadRecordTypes();
+  };
+
   const handleExport = async () => {
     try {
       setIsTransferring(true);
       const records = await getAllDayRecords(db);
       const exportedRecordTypes = (await getRecordTypes(db)).map((recordType) => ({
+        color: getRecordTypeColor(recordType),
         icon_name: getRecordTypeIconName(recordType),
         id: recordType.id,
         is_builtin: recordType.is_builtin,
@@ -391,7 +409,10 @@ export default function SettingsScreen() {
       }));
       const exportedAt = new Date().toISOString();
       const exportFile = createExportFile(
-        records.map(({ id, record_type_name, ...record }) => record),
+        records.map(
+          ({ id, record_type_name, record_type_icon_name, record_type_color, ...record }) =>
+            record,
+        ),
         exportedAt,
         exportedRecordTypes,
       );
@@ -590,6 +611,34 @@ export default function SettingsScreen() {
               name={iconName}
               size={21}
             />
+          </AnimatedPressable>
+        );
+      })}
+    </View>
+  );
+
+  const renderColorPicker = (
+    selectedColor: RecordTypeColor,
+    onSelect: (color: RecordTypeColor) => void,
+  ) => (
+    <View style={styles.colorPickerGrid}>
+      {recordTypeColorOptions.map((color) => {
+        const isActive = selectedColor === color;
+
+        return (
+          <AnimatedPressable
+            accessibilityRole="radio"
+            accessibilityState={{ checked: isActive }}
+            key={color}
+            onPress={() => onSelect(color)}
+            pressedScale={0.9}
+            style={[
+              styles.colorPickerButton,
+              { backgroundColor: color, borderColor: color },
+              isActive && styles.colorPickerButtonActive,
+            ]}
+          >
+            {isActive ? <Ionicons color={colors.surface} name="checkmark" size={18} /> : null}
           </AnimatedPressable>
         );
       })}
@@ -835,6 +884,7 @@ export default function SettingsScreen() {
                     {recordTypes.map((recordType) => {
                       const isActive = defaultRecordTypeId === recordType.id;
                       const iconName = getRecordTypeIconName(recordType);
+                      const typeColor = getRecordTypeColor(recordType);
 
                       return (
                         <AnimatedPressable
@@ -848,25 +898,49 @@ export default function SettingsScreen() {
                           style={[
                             styles.typeCard,
                             defaultTypeCardWidth !== undefined && { width: defaultTypeCardWidth },
-                            isActive && styles.typeCardActive,
+                            {
+                              backgroundColor: typeColor,
+                              borderColor: typeColor,
+                              shadowColor: typeColor,
+                            },
+                            isActive && [
+                              styles.typeCardActive,
+                              {
+                                backgroundColor: typeColor,
+                                borderColor: typeColor,
+                                shadowColor: typeColor,
+                              },
+                            ],
                           ]}
                         >
                           <View
                             style={[styles.typeCardIcon, isActive && styles.typeCardIconActive]}
                           >
                             <Ionicons
-                              color={isActive ? colors.surface : colors.textSoft}
+                              color={colors.surface}
                               name={iconName}
                               size={22}
                             />
                           </View>
                           <Text
                             numberOfLines={1}
-                            style={[styles.typeCardText, isActive && styles.typeCardTextActive]}
+                            style={[
+                              styles.typeCardText,
+                              { color: colors.surface },
+                              isActive && styles.typeCardTextActive,
+                            ]}
                           >
                             {getRecordTypeName(recordType, t)}
                           </Text>
-                          <View style={[styles.typeCardCheck, isActive && styles.radioTypeActive]}>
+                          <View
+                            style={[
+                              styles.typeCardCheck,
+                              isActive && [
+                                styles.radioTypeActive,
+                                { backgroundColor: typeColor, borderColor: typeColor },
+                              ],
+                            ]}
+                          >
                             {isActive ? (
                               <Ionicons color={colors.surface} name="checkmark" size={14} />
                             ) : null}
@@ -939,6 +1013,19 @@ export default function SettingsScreen() {
                     >
                       <Ionicons color={colors.primary} name={newRecordTypeIconName} size={23} />
                     </AnimatedPressable>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      onPress={() =>
+                        setExpandedColorPickerId((current) => (current === 'new' ? null : 'new'))
+                      }
+                      pressedScale={0.94}
+                      style={[
+                        styles.typeColorSelectButton,
+                        { backgroundColor: newRecordTypeColor, borderColor: newRecordTypeColor },
+                      ]}
+                    >
+                      <Ionicons color={colors.surface} name="color-palette" size={21} />
+                    </AnimatedPressable>
                     <TextInput
                       onChangeText={setNewRecordTypeName}
                       onSubmitEditing={handleCreateRecordType}
@@ -960,14 +1047,23 @@ export default function SettingsScreen() {
                   {expandedIconPickerId === 'new'
                     ? renderIconPicker(newRecordTypeIconName, setNewRecordTypeIconName)
                     : null}
+                  {expandedColorPickerId === 'new'
+                    ? renderColorPicker(newRecordTypeColor, setNewRecordTypeColor)
+                    : null}
                   {customRecordTypes.map((recordType) => {
                     const isBuiltIn = Boolean(recordType.is_builtin);
                     const isDefault = recordType.id === defaultRecordTypeId;
                     const iconName = getRecordTypeIconName(recordType);
+                    const typeColor = getRecordTypeColor(recordType);
 
                     return (
                       <View key={recordType.id}>
-                        <View style={styles.typeManageRow}>
+                        <View
+                          style={[
+                            styles.typeManageRow,
+                            { backgroundColor: typeColor, borderColor: typeColor },
+                          ]}
+                        >
                           <AnimatedPressable
                             accessibilityLabel={t('settings.changeRecordTypeIcon')}
                             accessibilityRole="button"
@@ -978,13 +1074,34 @@ export default function SettingsScreen() {
                               )
                             }
                             pressedScale={isBuiltIn ? 1 : 0.92}
-                            style={[styles.typeManageIcon, isBuiltIn && styles.typeManageIconLocked]}
+                            style={[
+                              styles.typeManageIcon,
+                              { backgroundColor: typeColor, borderColor: typeColor },
+                              isBuiltIn && styles.typeManageIconLocked,
+                            ]}
                           >
                             <Ionicons
-                              color={isBuiltIn ? colors.mutedSubtle : colors.primary}
+                              color={colors.surface}
                               name={iconName}
                               size={22}
                             />
+                          </AnimatedPressable>
+                          <AnimatedPressable
+                            accessibilityRole="button"
+                            disabled={isBuiltIn}
+                            onPress={() =>
+                              setExpandedColorPickerId((current) =>
+                                current === recordType.id ? null : recordType.id,
+                              )
+                            }
+                            pressedScale={isBuiltIn ? 1 : 0.92}
+                            style={[
+                              styles.typeManageColor,
+                              { backgroundColor: typeColor, borderColor: typeColor },
+                              isBuiltIn && styles.typeManageIconLocked,
+                            ]}
+                          >
+                            <Ionicons color={colors.surface} name="color-palette" size={17} />
                           </AnimatedPressable>
                           <View style={styles.typeManageMain}>
                             {isBuiltIn ? (
@@ -1005,11 +1122,11 @@ export default function SettingsScreen() {
                                 onSubmitEditing={() => {
                                   void handleSaveRecordTypeName(recordType);
                                 }}
-                                style={styles.typeNameInput}
+                                style={[styles.typeNameInput, { color: colors.surface }]}
                                 value={recordTypeDrafts[recordType.id] ?? recordType.name}
                               />
                             )}
-                            <Text style={styles.typeMeta}>
+                            <Text style={[styles.typeMeta, { color: colors.surface }]}>
                               {isBuiltIn
                                 ? t('settings.builtInRecordType')
                                 : isDefault
@@ -1059,6 +1176,11 @@ export default function SettingsScreen() {
                         {!isBuiltIn && expandedIconPickerId === recordType.id
                           ? renderIconPicker(iconName, (nextIconName) => {
                               void handleRecordTypeIconChange(recordType, nextIconName);
+                            })
+                          : null}
+                        {!isBuiltIn && expandedColorPickerId === recordType.id
+                          ? renderColorPicker(typeColor, (nextColor) => {
+                              void handleRecordTypeColorChange(recordType, nextColor);
                             })
                           : null}
                       </View>
@@ -1535,6 +1657,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       borderColor: colors.primary,
       flexShrink: 0,
     },
+    typeColorSelectButton: {
+      width: 44,
+      height: 44,
+      borderRadius: radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      flexShrink: 0,
+    },
     iconPickerGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -1559,6 +1690,32 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     iconPickerButtonActive: {
       backgroundColor: colors.primary,
       borderColor: colors.primary,
+    },
+    colorPickerGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      padding: spacing.sm,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: spacing.sm,
+    },
+    colorPickerButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+    },
+    colorPickerButtonActive: {
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.18,
+      shadowRadius: 10,
+      elevation: 4,
     },
     typeCardGrid: {
       flexDirection: 'row',
@@ -1638,6 +1795,15 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: colors.primarySoft,
       borderWidth: 1,
       borderColor: colors.primary,
+      flexShrink: 0,
+    },
+    typeManageColor: {
+      width: 30,
+      height: 30,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
       flexShrink: 0,
     },
     typeManageIconLocked: {

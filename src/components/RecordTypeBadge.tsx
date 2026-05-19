@@ -8,19 +8,22 @@ type RecordTypeBadgeProps = {
   iconName: RecordTypeIconName;
   label: string;
   active?: boolean;
+  color?: string;
   compact?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
 export function RecordTypeBadge({
   active = false,
+  color: badgeColor,
   compact = false,
   iconName,
   label,
   style,
 }: RecordTypeBadgeProps) {
   const { colors } = useAppTheme();
-  const color = active ? colors.surface : colors.primary;
+  const backgroundColor = badgeColor ?? colors.primary;
+  const color = active || badgeColor ? colors.surface : colors.primary;
 
   return (
     <View
@@ -28,8 +31,8 @@ export function RecordTypeBadge({
         styles.badge,
         compact && styles.badgeCompact,
         {
-          backgroundColor: active ? colors.primary : colors.primarySoft,
-          borderColor: active ? colors.primary : colors.primarySoft,
+          backgroundColor: active || badgeColor ? backgroundColor : colors.primarySoft,
+          borderColor: active || badgeColor ? backgroundColor : colors.primarySoft,
         },
         style,
       ]}
