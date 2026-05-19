@@ -40,6 +40,7 @@ import {
 import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { radius, spacing, useAppTheme } from '@/theme';
 import {
+  formatDayKey,
   formatDayLabel,
   formatDuration,
   formatWeekdayLabel,
@@ -419,6 +420,7 @@ export default function HomeScreen() {
     separateRecordEnabled && todayRecord && !isBeforeStartTime,
   );
   const isTodayPanelSelected = Boolean(separateRecordEnabled && todayRecord && showRecordButton);
+  const headerDayKey = currentDayKey || formatDayKey(new Date());
   const todayClockHands = useMemo(() => getClockHandsFromRecord(todayRecord), [todayRecord]);
   const activeSeparateRecordType = activeSeparateRecordTypeId
     ? recordTypes.find((recordType) => recordType.id === activeSeparateRecordTypeId)
@@ -450,12 +452,13 @@ export default function HomeScreen() {
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>{t('home.today')}</Text>
+          <View style={styles.headerDateRow}>
+            <Text style={styles.title}>{formatDayLabel(headerDayKey)}</Text>
+            <Text style={styles.headerWeekday}>{formatWeekdayLabel(headerDayKey)}</Text>
           </View>
           <AnimatedPressable
             accessibilityLabel={t('stats.dayRecordTitle', {
-              day: currentDayKey ? formatDayLabel(currentDayKey) : t('home.today'),
+              day: formatDayLabel(headerDayKey),
             })}
             accessibilityRole="button"
             disabled={!currentDayKey}
@@ -491,18 +494,20 @@ export default function HomeScreen() {
             style={styles.todayPanel}
           >
             <View style={styles.todayCopy}>
-              {currentDayKey ? (
-                <View style={styles.cardLabelRow}>
-                  <Text style={styles.cardLabel}>{formatDayLabel(currentDayKey)}</Text>
-                  <Text style={styles.todayPanelWeekday}>{formatWeekdayLabel(currentDayKey)}</Text>
-                </View>
-              ) : (
-                <Text style={[styles.cardLabel, styles.cardLabelStandalone]}>{t('home.today')}</Text>
-              )}
               {isLoading ? (
                 <ActivityIndicator color={colors.primary} style={styles.loadingIndicator} />
               ) : todayRecord ? (
                 <>
+                  {todayDisplayRangeParts ? (
+                    <View style={styles.todayMetaRow}>
+                      <View style={styles.todayTimeFields}>
+                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
+                        <Text style={styles.todayTimeSeparator}>-</Text>
+                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
+                        <Ionicons color={colors.textSoft} name="create" size={17} />
+                      </View>
+                    </View>
+                  ) : null}
                   {recordUnit === 'minutes' ? (
                     <View style={styles.minutesRow}>
                       <Text style={styles.minutesNumber}>
@@ -518,25 +523,19 @@ export default function HomeScreen() {
                       )}
                     </Text>
                   )}
-                  <View style={styles.todayMetaRow}>
-                    {todayDisplayRangeParts ? (
-                      <View style={styles.todayTimeFields}>
-                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
-                        <Text style={styles.todayTimeSeparator}>-</Text>
-                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
-                        <Ionicons color={colors.textSoft} name="create" size={17} />
-                      </View>
-                    ) : null}
-                    {todayTypeInfos.map((typeInfo) => (
-                      <RecordTypeBadge
-                        compact
-                        iconName={typeInfo.iconName}
-                        key={typeInfo.id}
-                        label={typeInfo.label}
-                        style={styles.todayTypeBadge}
-                      />
-                    ))}
-                  </View>
+                  {todayTypeInfos.length > 0 ? (
+                    <View style={styles.todayTypeRow}>
+                      {todayTypeInfos.map((typeInfo) => (
+                        <RecordTypeBadge
+                          compact
+                          iconName={typeInfo.iconName}
+                          key={typeInfo.id}
+                          label={typeInfo.label}
+                          style={styles.todayTypeBadge}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -776,6 +775,20 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
+  headerDateRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingRight: spacing.md,
+  },
+  headerWeekday: {
+    color: colors.textSoft,
+    fontSize: 16,
+    fontWeight: '700',
+  },
   title: {
     color: colors.text,
     fontSize: 31,
@@ -832,33 +845,14 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     minWidth: 0,
     paddingRight: spacing.md,
   },
-  cardLabelRow: {
+  todayTypeRow: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     flexShrink: 0,
+    flexWrap: 'wrap',
     gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  cardLabel: {
-    flexShrink: 0,
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  cardLabelStandalone: {
-    marginBottom: spacing.sm,
-  },
-  todayPanelWeekday: {
-    flexShrink: 0,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: colors.infoSoft,
-    color: colors.info,
-    fontSize: 11,
-    fontWeight: '800',
-    overflow: 'hidden',
+    marginTop: spacing.sm,
   },
   todayTypeBadge: {
     flexShrink: 0,
@@ -912,7 +906,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: spacing.sm,
-    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
   },
   todayTimeFields: {
     alignSelf: 'flex-start',
