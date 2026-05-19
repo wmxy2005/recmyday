@@ -88,6 +88,7 @@ const editorRecordTypeGridBreakpoints = [
 let sessionSelectedRecordTypeIds: string[] | null = null;
 
 type EditorTimeSection = 'start' | 'end';
+type EditorExpandedSection = EditorTimeSection | 'type';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 function pad2(value: number) {
@@ -176,9 +177,8 @@ export default function StatsScreen() {
   const [draftStartTime, setDraftStartTime] = useState('09:00');
   const [draftEndTime, setDraftEndTime] = useState('09:30');
   const [draftRecordTypeId, setDraftRecordTypeId] = useState('work');
-  const [expandedEditorTimeSection, setExpandedEditorTimeSection] =
-    useState<EditorTimeSection | null>(null);
-  const [editorTypeExpanded, setEditorTypeExpanded] = useState(false);
+  const [expandedEditorSection, setExpandedEditorSection] =
+    useState<EditorExpandedSection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const hasLoadedRef = useRef(false);
   const filterTypeGridColumns = getFilterTypeGridColumns(windowWidth);
@@ -341,6 +341,7 @@ export default function StatsScreen() {
   const canCreateSelectedDayRecord =
     selectedDayKey !== null && (!separateRecordEnabled || selectedDayAllRecordCount === 0);
   const dayRecordsListMaxHeight = Math.max(120, Math.round(windowHeight * 0.72 - 230));
+  const recordEditorFormMaxHeight = Math.max(200, Math.round(windowHeight * 0.9 - 250));
   const chartRecords = useMemo(() => {
     const latestRecords = filteredRecords.slice(-7);
     const maxMinutes = Math.max(...latestRecords.map((record) => record.minutes_since_start), 1);
@@ -403,8 +404,7 @@ export default function StatsScreen() {
     setDraftStartTime(formatTimeInput(startTimeMinutes));
     setDraftEndTime(formatTimeInput(currentMinutes));
     setDraftRecordTypeId(defaultRecordTypeId);
-    setExpandedEditorTimeSection(null);
-    setEditorTypeExpanded(false);
+    setExpandedEditorSection(null);
     setRecordEditorVisible(true);
   };
 
@@ -414,8 +414,7 @@ export default function StatsScreen() {
     setDraftStartTime(formatTimeInput(startMinutes));
     setDraftEndTime(formatTimeInput(endMinutes));
     setDraftRecordTypeId(record.record_type_id);
-    setExpandedEditorTimeSection(null);
-    setEditorTypeExpanded(false);
+    setExpandedEditorSection(null);
     setRecordEditorVisible(true);
   };
 
@@ -437,8 +436,7 @@ export default function StatsScreen() {
 
   const handleRecordEditorExitComplete = useCallback(() => {
     setEditingRecordId(null);
-    setExpandedEditorTimeSection(null);
-    setEditorTypeExpanded(false);
+    setExpandedEditorSection(null);
   }, []);
 
   const handleToggleRecordTypeFilter = (recordTypeId: string) => {
@@ -517,7 +515,7 @@ export default function StatsScreen() {
     iconBackground: string,
     onChange: (value: string) => void,
   ) => {
-    const isExpanded = expandedEditorTimeSection === section;
+    const isExpanded = expandedEditorSection === section;
     const timeMinutes = parseTimeInput(value) ?? 0;
 
     return (
@@ -529,7 +527,7 @@ export default function StatsScreen() {
       >
         <AnimatedPressable
           accessibilityRole="button"
-          onPress={() => setExpandedEditorTimeSection(isExpanded ? null : section)}
+          onPress={() => setExpandedEditorSection(isExpanded ? null : section)}
           pressedScale={0.985}
           style={styles.editorTimeRow}
         >
@@ -968,7 +966,13 @@ export default function StatsScreen() {
           </AnimatedPressable>
         </View>
 
-        <View style={styles.editorForm}>
+        <ScrollView
+          contentContainerStyle={styles.editorForm}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          style={[styles.editorFormScroll, { maxHeight: recordEditorFormMaxHeight }]}
+        >
           {renderEditorTimePicker(
             'start',
             t('stats.startTime'),
@@ -990,7 +994,9 @@ export default function StatsScreen() {
           <View style={styles.editorTypeSection}>
             <AnimatedPressable
               accessibilityRole="button"
-              onPress={() => setEditorTypeExpanded((current) => !current)}
+              onPress={() =>
+                setExpandedEditorSection((current) => (current === 'type' ? null : 'type'))
+              }
               pressedScale={0.985}
               style={styles.editorTypeHeader}
             >
@@ -1006,7 +1012,7 @@ export default function StatsScreen() {
               <Text
                 style={[
                   styles.editorInputLabel,
-                  editorTypeExpanded && { color: colors.primary },
+                  expandedEditorSection === 'type' && { color: colors.primary },
                 ]}
               >
                 {t('stats.recordType')}
@@ -1015,18 +1021,18 @@ export default function StatsScreen() {
                 numberOfLines={1}
                 style={[
                   styles.editorTypeValue,
-                  editorTypeExpanded && { color: colors.primary },
+                  expandedEditorSection === 'type' && { color: colors.primary },
                 ]}
               >
                 {draftRecordType ? getRecordTypeName(draftRecordType, t) : t('stats.allRecordTypes')}
               </Text>
               <Ionicons
-                color={editorTypeExpanded ? colors.primary : colors.mutedSubtle}
-                name={editorTypeExpanded ? 'chevron-up' : 'chevron-forward'}
+                color={expandedEditorSection === 'type' ? colors.primary : colors.mutedSubtle}
+                name={expandedEditorSection === 'type' ? 'chevron-up' : 'chevron-forward'}
                 size={21}
               />
             </AnimatedPressable>
-            {editorTypeExpanded ? (
+            {expandedEditorSection === 'type' ? (
               <View onLayout={handleEditorTypeGridLayout} style={styles.editorTypeCardGrid}>
                 {recordTypes.map((recordType) => {
                   const isActive = draftRecordTypeId === recordType.id;
@@ -1094,7 +1100,7 @@ export default function StatsScreen() {
               })()}
             </Text>
           </View>
-        </View>
+        </ScrollView>
 
         <View style={styles.editorSheetActions}>
           <AnimatedPressable
@@ -1815,6 +1821,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     justifyContent: 'space-between',
     gap: spacing.md,
     marginBottom: spacing.lg,
+  },
+  editorFormScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 0,
   },
   editorForm: {
     gap: spacing.md,
