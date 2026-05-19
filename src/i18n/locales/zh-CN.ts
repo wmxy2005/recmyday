@@ -18,6 +18,7 @@ export default {
     updateRecord: '更新',
     startRecord: '开始',
     endRecord: '结束',
+    cancelRecord: '取消',
     chooseRecordType: '选择记录类型',
     chooseRecordTypeHint: '选择后开始本次记录',
   },

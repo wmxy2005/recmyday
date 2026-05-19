@@ -658,6 +658,7 @@ export default function HomeScreen() {
         <View pointerEvents="box-none" style={styles.actionArea}>
           <RecordButton
             animatedStyle={recordButtonAnimatedStyle}
+            cancelLabel={t('home.cancelRecord')}
             disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
             hasRecord={separateRecordEnabled && Boolean(todayRecord)}
             iconName={recordButtonIconName}

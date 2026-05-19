@@ -18,6 +18,7 @@ export default {
     updateRecord: 'Update',
     startRecord: 'Start',
     endRecord: 'End',
+    cancelRecord: 'Cancel',
     chooseRecordType: 'Choose type',
     chooseRecordTypeHint: 'The session starts after you choose a type.',
   },

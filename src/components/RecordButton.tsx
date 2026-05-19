@@ -1,22 +1,40 @@
 import { Ionicons } from '@expo/vector-icons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
-  cancelAnimation,
   Easing,
+  interpolateColor,
+  runOnJS,
   type AnimatedStyle,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 
-import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { spacing, useAppTheme } from '@/theme';
 
-const cancelLongPressDurationMs = 800;
+const cancelArmDelayMs = 500;
+const pillEnterDurationMs = 180;
+const pillExitDurationMs = 160;
+const pillTravel = 20;
+const pillHoverDurationMs = 130;
+const pillHoverPadding = 12;
+
+type PillRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+const emptyPillRect: PillRect = { left: 0, top: 0, right: 0, bottom: 0 };
 
 type RecordButtonProps = {
   animatedStyle: AnimatedStyle<ViewStyle>;
+  cancelLabel?: string;
   disabled: boolean;
   hasRecord: boolean;
   iconName?: keyof typeof Ionicons.glyphMap;
@@ -34,6 +52,7 @@ type RecordButtonProps = {
 
 function RecordButtonComponent({
   animatedStyle,
+  cancelLabel = 'Cancel',
   disabled,
   hasRecord,
   iconName,
@@ -52,14 +71,38 @@ function RecordButtonComponent({
   const { colors } = theme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [currentDate, setCurrentDate] = useState(() => new Date());
-  const cancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelTriggeredRef = useRef(false);
-  const cancelProgress = useSharedValue(0);
   const canCancelRecording = Boolean(recordingStartedAt && onCancelRecording);
 
-  const cancelProgressStyle = useAnimatedStyle(() => ({
-    width: `${cancelProgress.value * 100}%`,
-  }));
+  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pillViewRef = useRef<View>(null);
+  const onPressRef = useRef(onPress);
+  const onCancelRef = useRef(onCancelRecording);
+
+  const pressScale = useSharedValue(1);
+  const pressTranslateY = useSharedValue(0);
+  const pillProgress = useSharedValue(0);
+  const hoverBool = useSharedValue(0);
+  const hoverProgress = useSharedValue(0);
+  const armedShared = useSharedValue(0);
+  const disabledShared = useSharedValue(disabled ? 1 : 0);
+  const canCancelShared = useSharedValue(canCancelRecording ? 1 : 0);
+  const pillRectShared = useSharedValue<PillRect>(emptyPillRect);
+
+  useEffect(() => {
+    onPressRef.current = onPress;
+  }, [onPress]);
+
+  useEffect(() => {
+    onCancelRef.current = onCancelRecording;
+  }, [onCancelRecording]);
+
+  useEffect(() => {
+    disabledShared.value = disabled ? 1 : 0;
+  }, [disabled, disabledShared]);
+
+  useEffect(() => {
+    canCancelShared.value = canCancelRecording ? 1 : 0;
+  }, [canCancelRecording, canCancelShared]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -69,26 +112,165 @@ function RecordButtonComponent({
     return () => clearInterval(timer);
   }, []);
 
-  const clearCancelProgress = useCallback(() => {
-    if (cancelTimerRef.current) {
-      clearTimeout(cancelTimerRef.current);
-      cancelTimerRef.current = null;
+  const clearArmTimer = useCallback(() => {
+    if (armTimerRef.current) {
+      clearTimeout(armTimerRef.current);
+      armTimerRef.current = null;
     }
+  }, []);
 
-    cancelAnimation(cancelProgress);
-    cancelProgress.value = 0;
-  }, [cancelProgress]);
+  const measurePill = useCallback(() => {
+    const node = pillViewRef.current;
+    if (!node) {
+      return;
+    }
+    node.measureInWindow((x, y, width, height) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+        return;
+      }
+      pillRectShared.value = {
+        left: x - pillHoverPadding,
+        top: y - pillHoverPadding,
+        right: x + width + pillHoverPadding,
+        bottom: y + height + pillHoverPadding,
+      };
+    });
+  }, [pillRectShared]);
+
+  const showPill = useCallback(() => {
+    measurePill();
+    pillProgress.value = withTiming(1, {
+      duration: pillEnterDurationMs,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [measurePill, pillProgress]);
+
+  const hidePill = useCallback(() => {
+    pillProgress.value = withTiming(0, {
+      duration: pillExitDurationMs,
+      easing: Easing.in(Easing.cubic),
+    });
+  }, [pillProgress]);
+
+  const armCancel = useCallback(() => {
+    armedShared.value = 1;
+    showPill();
+  }, [armedShared, showPill]);
+
+  const scheduleArm = useCallback(() => {
+    clearArmTimer();
+    armTimerRef.current = setTimeout(armCancel, cancelArmDelayMs);
+  }, [armCancel, clearArmTimer]);
+
+  const startPress = useCallback(() => {
+    pressScale.value = withSpring(0.96, { damping: 16, stiffness: 420, mass: 0.35 });
+    pressTranslateY.value = withSpring(1, { damping: 16, stiffness: 420, mass: 0.35 });
+    if (canCancelShared.value === 1) {
+      scheduleArm();
+    }
+  }, [canCancelShared, pressScale, pressTranslateY, scheduleArm]);
+
+  const endPressVisuals = useCallback(() => {
+    clearArmTimer();
+    pressScale.value = withSpring(1, { damping: 16, stiffness: 420, mass: 0.35 });
+    pressTranslateY.value = withSpring(0, { damping: 16, stiffness: 420, mass: 0.35 });
+    hidePill();
+  }, [clearArmTimer, hidePill, pressScale, pressTranslateY]);
+
+  const firePress = useCallback(() => {
+    onPressRef.current?.();
+  }, []);
+
+  const fireCancel = useCallback(() => {
+    onCancelRef.current?.();
+  }, []);
 
   useEffect(() => {
-    return clearCancelProgress;
-  }, [clearCancelProgress]);
+    if (!canCancelRecording) {
+      armedShared.value = 0;
+      hoverBool.value = 0;
+      hoverProgress.value = 0;
+      clearArmTimer();
+      hidePill();
+    }
+  }, [armedShared, canCancelRecording, clearArmTimer, hidePill, hoverBool, hoverProgress]);
 
   useEffect(() => {
-    if (!recordingStartedAt) {
-      cancelTriggeredRef.current = false;
-      clearCancelProgress();
-    }
-  }, [clearCancelProgress, recordingStartedAt]);
+    return () => {
+      clearArmTimer();
+    };
+  }, [clearArmTimer]);
+
+  useAnimatedReaction(
+    () => hoverBool.value,
+    (current, previous) => {
+      if (current === previous) {
+        return;
+      }
+      hoverProgress.value = withTiming(current, {
+        duration: pillHoverDurationMs,
+        easing: Easing.out(Easing.cubic),
+      });
+    },
+  );
+
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .manualActivation(true)
+        .onTouchesDown((_event, state) => {
+          if (disabledShared.value === 1) {
+            state.fail();
+            return;
+          }
+          state.activate();
+          runOnJS(startPress)();
+        })
+        .onTouchesMove((event) => {
+          if (armedShared.value !== 1 || event.allTouches.length === 0) {
+            return;
+          }
+          const touch = event.allTouches[0];
+          const rect = pillRectShared.value;
+          const inside =
+            touch.absoluteX >= rect.left &&
+            touch.absoluteX <= rect.right &&
+            touch.absoluteY >= rect.top &&
+            touch.absoluteY <= rect.bottom;
+          hoverBool.value = inside ? 1 : 0;
+        })
+        .onTouchesUp((_event, state) => {
+          const wasArmed = armedShared.value === 1;
+          const wasHovering = hoverBool.value === 1;
+
+          if (wasArmed && wasHovering) {
+            runOnJS(fireCancel)();
+          } else if (!wasArmed) {
+            runOnJS(firePress)();
+          }
+
+          armedShared.value = 0;
+          hoverBool.value = 0;
+          runOnJS(endPressVisuals)();
+          state.end();
+        })
+        .onTouchesCancelled((_event, state) => {
+          armedShared.value = 0;
+          hoverBool.value = 0;
+          runOnJS(endPressVisuals)();
+          state.fail();
+        }),
+    [
+      armedShared,
+      disabledShared,
+      endPressVisuals,
+      fireCancel,
+      firePress,
+      hoverBool,
+      pillRectShared,
+      startPress,
+    ],
+  );
 
   const currentTime = currentDate.toLocaleTimeString([], {
     hour: '2-digit',
@@ -101,90 +283,97 @@ function RecordButtonComponent({
   const elapsedMinutes = elapsedSeconds === null ? null : Math.floor(elapsedSeconds / 60);
   const remainingSeconds = elapsedSeconds === null ? null : elapsedSeconds % 60;
 
-  const handlePressIn = () => {
-    if (!canCancelRecording) {
-      return;
-    }
+  const buttonPressStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: pressScale.value },
+      { translateY: pressTranslateY.value },
+    ],
+  }));
 
-    cancelTriggeredRef.current = false;
-    cancelAnimation(cancelProgress);
-    cancelProgress.value = 0;
-    cancelProgress.value = withTiming(1, {
-      duration: cancelLongPressDurationMs,
-      easing: Easing.linear,
-    });
-    cancelTimerRef.current = setTimeout(() => {
-      cancelTriggeredRef.current = true;
-      clearCancelProgress();
-      onCancelRecording?.();
-    }, cancelLongPressDurationMs);
-  };
+  const pillContainerAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: pillProgress.value,
+    transform: [
+      { translateY: (1 - pillProgress.value) * pillTravel },
+      { scale: 1 + hoverProgress.value * 0.08 },
+    ],
+  }));
 
-  const handlePressOut = () => {
-    if (!canCancelRecording) {
-      return;
-    }
+  const pillBackgroundAnimatedStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      hoverProgress.value,
+      [0, 1],
+      [colors.surface, colors.danger],
+    ),
+  }));
 
-    if (!cancelTriggeredRef.current) {
-      clearCancelProgress();
-    }
-  };
-
-  const handlePress = () => {
-    if (cancelTriggeredRef.current) {
-      cancelTriggeredRef.current = false;
-      return;
-    }
-
-    onPress();
-  };
+  const pillHoverOverlayStyle = useAnimatedStyle(() => ({
+    opacity: hoverProgress.value,
+  }));
 
   return (
     <Animated.View pointerEvents={pointerEvents} style={animatedStyle}>
-      <AnimatedPressable
-        accessibilityRole="button"
-        disabled={disabled}
-        onPress={handlePress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        pressedScale={0.96}
-        pressedTranslateY={1}
-        style={({ pressed }) => [
-          styles.button,
-          tone === 'danger' && styles.danger,
-          tone === 'success' && styles.success,
-          hasRecord && styles.recorded,
-          pressed && !isRecording && !hasRecord && styles.pressed,
-          isRecording && styles.disabled,
-        ]}
-      >
-        {canCancelRecording ? (
+      <View style={styles.root}>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.cancelPillWrapper, pillContainerAnimatedStyle]}
+        >
           <Animated.View
-            pointerEvents="none"
-            style={[styles.cancelProgressFill, cancelProgressStyle]}
-          />
-        ) : null}
-        <View style={[styles.iconBadge, iconLabel && styles.iconBadgeWithLabel]}>
-          <Ionicons
-            color={colors.surface}
-            name={iconName ?? (hasRecord ? 'refresh' : 'add')}
-            size={iconLabel ? 34 : 34}
-          />
-          {iconLabel ? (
-            <Text numberOfLines={1} style={styles.iconBadgeLabel}>
-              {iconLabel}
-            </Text>
-          ) : null}
-        </View>
-        <View style={styles.textGroup}>
-          <Text style={styles.label}>{label ?? (hasRecord ? 'Update' : 'Record')}</Text>
-          <Text style={styles.time}>
-            {elapsedMinutes === null || remainingSeconds === null
-              ? currentTime
-              : `${elapsedMinutes} ${recordingUnitLabel} ${remainingSeconds} ${secondsUnitLabel}`}
-          </Text>
-        </View>
-      </AnimatedPressable>
+            ref={pillViewRef}
+            onLayout={measurePill}
+            style={[styles.cancelPill, pillBackgroundAnimatedStyle]}
+          >
+            <View style={styles.cancelPillRow}>
+              <Ionicons color={colors.danger} name="close-circle" size={20} />
+              <Text style={[styles.cancelPillLabel, { color: colors.danger }]}>
+                {cancelLabel}
+              </Text>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.cancelPillOverlay, pillHoverOverlayStyle]}
+            >
+              <Ionicons color={colors.surface} name="close-circle" size={20} />
+              <Text style={[styles.cancelPillLabel, { color: colors.surface }]}>
+                {cancelLabel}
+              </Text>
+            </Animated.View>
+          </Animated.View>
+        </Animated.View>
+        <GestureDetector gesture={pan}>
+          <Animated.View
+            accessibilityRole="button"
+            style={[
+              styles.button,
+              tone === 'danger' && styles.danger,
+              tone === 'success' && styles.success,
+              hasRecord && styles.recorded,
+              isRecording && styles.disabled,
+              buttonPressStyle,
+            ]}
+          >
+            <View style={[styles.iconBadge, iconLabel && styles.iconBadgeWithLabel]}>
+              <Ionicons
+                color={colors.surface}
+                name={iconName ?? (hasRecord ? 'refresh' : 'add')}
+                size={iconLabel ? 34 : 34}
+              />
+              {iconLabel ? (
+                <Text numberOfLines={1} style={styles.iconBadgeLabel}>
+                  {iconLabel}
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.textGroup}>
+              <Text style={styles.label}>{label ?? (hasRecord ? 'Update' : 'Record')}</Text>
+              <Text style={styles.time}>
+                {elapsedMinutes === null || remainingSeconds === null
+                  ? currentTime
+                  : `${elapsedMinutes} ${recordingUnitLabel} ${remainingSeconds} ${secondsUnitLabel}`}
+              </Text>
+            </View>
+          </Animated.View>
+        </GestureDetector>
+      </View>
     </Animated.View>
   );
 }
@@ -195,6 +384,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   const { colors, shadow } = theme;
 
   return StyleSheet.create({
+    root: {
+      position: 'relative',
+    },
     button: {
       minWidth: 148,
       height: 76,
@@ -209,16 +401,45 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       ...shadow,
       overflow: 'hidden',
     },
-    cancelProgressFill: {
+    cancelPillWrapper: {
       position: 'absolute',
       left: 0,
+      right: 0,
+      bottom: '100%',
+      marginBottom: spacing.md,
+      alignItems: 'center',
+    },
+    cancelPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm + 2,
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: colors.danger,
+      ...shadow,
+    },
+    cancelPillRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs + 2,
+    },
+    cancelPillOverlay: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
       top: 0,
       bottom: 0,
-      backgroundColor: colors.highlight,
-      opacity: 0.76,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs + 2,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm + 2,
     },
-    pressed: {
-      backgroundColor: colors.primaryDark,
+    cancelPillLabel: {
+      fontSize: 14,
+      fontWeight: '900',
     },
     recorded: {
       backgroundColor: colors.primaryDark,
