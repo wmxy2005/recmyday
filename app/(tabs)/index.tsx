@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -23,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
+import { DayRecordsPanel } from '@/components/DayRecordsPanel';
 import { RecordButton } from '@/components/RecordButton';
 import { RecordTypeBadge } from '@/components/RecordTypeBadge';
 import {
@@ -102,7 +103,6 @@ function getClockHandsFromRecord(record: DayRecord | null) {
 
 export default function HomeScreen() {
   const { t } = useTranslation();
-  const router = useRouter();
   const theme = useAppTheme();
   const { colors } = theme;
   const { width: windowWidth } = useWindowDimensions();
@@ -122,6 +122,8 @@ export default function HomeScreen() {
     null,
   );
   const [activeSeparateRecordTypeId, setActiveSeparateRecordTypeId] = useState<string | null>(null);
+  const [dayRecordsPanelVisible, setDayRecordsPanelVisible] = useState(false);
+  const [dayRecordsPanelDayKey, setDayRecordsPanelDayKey] = useState<string | null>(null);
   const [recordTypePickerVisible, setRecordTypePickerVisible] = useState(false);
   const [recordTypeGridWidth, setRecordTypeGridWidth] = useState(0);
   const [isBeforeStartTime, setIsBeforeStartTime] = useState(() => getIsBeforeStartTime(0));
@@ -408,14 +410,9 @@ export default function HomeScreen() {
     });
   };
 
-  const handleOpenRecordInStats = (dayKey: string) => {
-    router.push({
-      pathname: '/(tabs)/stats',
-      params: {
-        selectedDayKey: dayKey,
-        selectedAt: String(Date.now()),
-      },
-    });
+  const handleOpenDayRecords = (dayKey: string) => {
+    setDayRecordsPanelDayKey(dayKey);
+    setDayRecordsPanelVisible(true);
   };
 
   const canToggleRecordButton = Boolean(
@@ -457,11 +454,13 @@ export default function HomeScreen() {
             <Text style={styles.title}>{t('home.today')}</Text>
           </View>
           <AnimatedPressable
-            accessibilityLabel={`${t('home.today')} ${t('tabs.stats')}`}
+            accessibilityLabel={t('stats.dayRecordTitle', {
+              day: currentDayKey ? formatDayLabel(currentDayKey) : t('home.today'),
+            })}
             accessibilityRole="button"
             disabled={!currentDayKey}
             hitSlop={10}
-            onPress={() => handleOpenRecordInStats(currentDayKey)}
+            onPress={() => handleOpenDayRecords(currentDayKey)}
             pressedScale={0.9}
             style={({ pressed }) => [
               styles.headerIcon,
@@ -637,10 +636,12 @@ export default function HomeScreen() {
                     </Text>
                   )}
                   <AnimatedPressable
-                    accessibilityLabel={`${formatDayLabel(record.day_key)} ${t('tabs.stats')}`}
+                    accessibilityLabel={t('stats.dayRecordTitle', {
+                      day: formatDayLabel(record.day_key),
+                    })}
                     accessibilityRole="button"
                     hitSlop={10}
-                    onPress={() => handleOpenRecordInStats(record.day_key)}
+                    onPress={() => handleOpenDayRecords(record.day_key)}
                     pressedScale={0.92}
                     pressedTranslateX={4}
                     style={styles.recordArrowButton}
@@ -743,6 +744,14 @@ export default function HomeScreen() {
           })}
         </View>
       </AnimatedSheetModal>
+
+      <DayRecordsPanel
+        dayKey={dayRecordsPanelDayKey}
+        onClose={() => setDayRecordsPanelVisible(false)}
+        onExitComplete={() => setDayRecordsPanelDayKey(null)}
+        onRecordsChanged={loadData}
+        visible={dayRecordsPanelVisible}
+      />
     </SafeAreaView>
   );
 }
@@ -1100,7 +1109,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 92,
+    bottom: 100,
     alignItems: 'center',
   },
   modalBackdrop: {
