@@ -436,7 +436,7 @@ function RecordButtonComponent({
                   <Ionicons
                     color={colors.surface}
                     name={iconName ?? (hasRecord ? 'refresh' : 'add')}
-                    size={24}
+                    size={20}
                   />
                 </View>
               ) : null}
@@ -474,9 +474,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     },
     button: {
       minWidth: 152,
-      height: 64,
+      height: 50,
       paddingHorizontal: spacing.sm,
-      borderRadius: 32,
+      borderRadius: 25,
       backgroundColor: colors.primary,
       flexDirection: 'row',
       alignItems: 'center',
@@ -504,21 +504,21 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       gap: spacing.md,
       width: '100%',
       maxWidth: '100%',
-      minHeight: 46,
+      minHeight: 36,
       paddingHorizontal: spacing.lg,
     },
     cancelTargetWrapper: {
       position: 'absolute',
       left: 14,
-      top: 7,
+      top: 5,
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 5,
     },
     cancelTarget: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 2,
@@ -537,9 +537,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: colors.info,
     },
     iconBadge: {
-      width: 46,
-      height: 46,
-      borderRadius: 23,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.2)',

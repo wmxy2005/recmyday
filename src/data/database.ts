@@ -22,11 +22,12 @@ import {
 
 export const databaseName = 'rec-my-day.db';
 
-const databaseVersion = 9;
+const databaseVersion = 11;
 const defaultStartTimeMinutes = 0;
 const defaultRecordUnit: RecordUnit = 'minutes';
 const defaultRecentRecordLimit = 5;
 const defaultSeparateRecordEnabled = false;
+export const maxRecordTypeTargetMinutes = 99999;
 export const defaultRecordTypeId = 'work';
 export const builtInRecordTypes = [
   {
@@ -73,6 +74,7 @@ export type RecordType = {
   is_builtin: number;
   icon_name: RecordTypeIconName;
   color: RecordTypeColor;
+  target_minutes: number | null;
   created_at: string;
   updated_at: string;
   record_count?: number;
@@ -102,6 +104,7 @@ export type ImportDayRecord = Omit<
 export type ImportRecordType = Pick<RecordType, 'id' | 'name' | 'sort_order' | 'is_builtin'> & {
   icon_name?: RecordTypeIconName;
   color?: RecordTypeColor;
+  target_minutes?: number | null;
 };
 
 type SettingRow = {
@@ -114,6 +117,16 @@ function boolToSettingValue(value: boolean) {
 
 function normalizeRecordTypeName(name: string) {
   return name.trim().replace(/\s+/g, ' ').slice(0, 24);
+}
+
+function normalizeRecordTypeTargetMinutes(minutes: number | null | undefined) {
+  if (minutes === null || minutes === undefined) {
+    return null;
+  }
+
+  return Number.isInteger(minutes) && typeof minutes === 'number'
+    ? Math.max(1, Math.min(maxRecordTypeTargetMinutes, Math.trunc(minutes)))
+    : null;
 }
 
 async function seedBuiltInRecordTypes(db: SQLiteDatabase) {
@@ -147,10 +160,59 @@ async function seedBuiltInRecordTypes(db: SQLiteDatabase) {
   }
 }
 
+async function recreateRecordTypesWithNullableTargetMinutes(
+  db: SQLiteDatabase,
+  resetTargets = false,
+) {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS record_types_v11 (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      icon_name TEXT NOT NULL DEFAULT '${fallbackRecordTypeIconName}',
+      color TEXT NOT NULL DEFAULT '${fallbackRecordTypeColor}',
+      target_minutes INTEGER DEFAULT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT OR IGNORE INTO record_types_v11 (
+      id,
+      name,
+      sort_order,
+      is_builtin,
+      icon_name,
+      color,
+      target_minutes,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      name,
+      sort_order,
+      is_builtin,
+      icon_name,
+      color,
+      ${resetTargets ? 'NULL' : 'target_minutes'},
+      created_at,
+      updated_at
+    FROM record_types;
+
+    DROP TABLE record_types;
+    ALTER TABLE record_types_v11 RENAME TO record_types;
+  `);
+}
+
 async function repairRecordTypeMetadata(db: SQLiteDatabase) {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(record_types)');
   const hasIconName = columns.some((column) => column.name === 'icon_name');
   const hasColor = columns.some((column) => column.name === 'color');
+  const hasTargetMinutes = columns.some((column) => column.name === 'target_minutes');
+  const targetMinutesColumn = columns.find((column) => column.name === 'target_minutes') as
+    | { notnull?: number }
+    | undefined;
 
   if (!hasIconName) {
     await db.runAsync(
@@ -164,11 +226,23 @@ async function repairRecordTypeMetadata(db: SQLiteDatabase) {
     );
   }
 
+  if (!hasTargetMinutes) {
+    await db.runAsync(
+      'ALTER TABLE record_types ADD COLUMN target_minutes INTEGER DEFAULT NULL',
+    );
+  }
+
+  if (targetMinutesColumn?.notnull) {
+    await recreateRecordTypesWithNullableTargetMinutes(db);
+  }
+
   await seedBuiltInRecordTypes(db);
 
   const recordTypes = await db.getAllAsync<
-    Pick<RecordType, 'id' | 'icon_name' | 'color' | 'is_builtin'>
-  >('SELECT id, icon_name, color, is_builtin FROM record_types ORDER BY sort_order ASC, created_at ASC');
+    Pick<RecordType, 'id' | 'icon_name' | 'color' | 'target_minutes' | 'is_builtin'>
+  >(
+    'SELECT id, icon_name, color, target_minutes, is_builtin FROM record_types ORDER BY sort_order ASC, created_at ASC',
+  );
   let customColorIndex = 0;
 
   for (const recordType of recordTypes) {
@@ -179,6 +253,7 @@ async function repairRecordTypeMetadata(db: SQLiteDatabase) {
     const normalizedIconName = normalizeRecordTypeIconName(recordType.icon_name);
     const colorFallback = recordTypeColorOptions[customColorIndex % recordTypeColorOptions.length];
     const normalizedColor = normalizeRecordTypeColor(recordType.color, colorFallback);
+    const normalizedTargetMinutes = normalizeRecordTypeTargetMinutes(recordType.target_minutes);
     customColorIndex += 1;
 
     if (normalizedIconName !== recordType.icon_name) {
@@ -193,6 +268,14 @@ async function repairRecordTypeMetadata(db: SQLiteDatabase) {
       await db.runAsync(
         'UPDATE record_types SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_builtin = 0',
         normalizedColor,
+        recordType.id,
+      );
+    }
+
+    if (normalizedTargetMinutes !== recordType.target_minutes) {
+      await db.runAsync(
+        'UPDATE record_types SET target_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        normalizedTargetMinutes,
         recordType.id,
       );
     }
@@ -329,6 +412,7 @@ export async function migrateDatabase(db: SQLiteDatabase) {
         is_builtin INTEGER NOT NULL DEFAULT 0,
         icon_name TEXT NOT NULL DEFAULT 'pricetag-outline',
         color TEXT NOT NULL DEFAULT '${fallbackRecordTypeColor}',
+        target_minutes INTEGER DEFAULT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
@@ -410,6 +494,25 @@ export async function migrateDatabase(db: SQLiteDatabase) {
         recordTypeColorOptions[index % recordTypeColorOptions.length],
         recordType.id,
       );
+    }
+  }
+
+  if (currentVersion < 10) {
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(record_types)');
+    const hasTargetMinutes = columns.some((column) => column.name === 'target_minutes');
+
+    if (!hasTargetMinutes) {
+      await db.runAsync('ALTER TABLE record_types ADD COLUMN target_minutes INTEGER DEFAULT NULL');
+    }
+  }
+
+  if (currentVersion < 11) {
+    const tables = await db.getAllAsync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'record_types'",
+    );
+
+    if (tables.length > 0) {
+      await recreateRecordTypesWithNullableTargetMinutes(db, true);
     }
   }
 
@@ -567,10 +670,12 @@ export async function createRecordType(
   name: string,
   iconName = fallbackRecordTypeIconName,
   color = fallbackRecordTypeColor,
+  targetMinutes: number | null = null,
 ) {
   const normalizedName = normalizeRecordTypeName(name);
   const normalizedIconName = normalizeRecordTypeIconName(iconName);
   const normalizedColor = normalizeRecordTypeColor(color);
+  const normalizedTargetMinutes = normalizeRecordTypeTargetMinutes(targetMinutes);
 
   if (!normalizedName) {
     throw new Error('Record type name is required');
@@ -591,15 +696,17 @@ export async function createRecordType(
         is_builtin,
         icon_name,
         color,
+        target_minutes,
         updated_at
       )
-      VALUES (?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, 0, ?, ?, ?, CURRENT_TIMESTAMP)
     `,
     id,
     normalizedName,
     sortOrder,
     normalizedIconName,
     normalizedColor,
+    normalizedTargetMinutes,
   );
 
   return id;
@@ -635,6 +742,57 @@ export async function updateRecordTypeColor(
     normalizeRecordTypeColor(color),
     id,
   );
+}
+
+export async function updateRecordTypeTargetMinutes(
+  db: SQLiteDatabase,
+  id: string,
+  minutes: number,
+) {
+  const normalizedMinutes = normalizeRecordTypeTargetMinutes(minutes);
+
+  if (normalizedMinutes === null) {
+    throw new Error('Record type target minutes are required');
+  }
+
+  await db.runAsync(
+    `
+      UPDATE record_types
+      SET target_minutes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `,
+    normalizedMinutes,
+    id,
+  );
+
+  return normalizedMinutes;
+}
+
+export async function clearRecordTypeTargetMinutes(db: SQLiteDatabase, id: string) {
+  const clearTarget = () =>
+    db.runAsync(
+      `
+        UPDATE record_types
+        SET target_minutes = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      id,
+    );
+
+  try {
+    await clearTarget();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.toLowerCase().includes('not null')
+    ) {
+      await recreateRecordTypesWithNullableTargetMinutes(db);
+      await clearTarget();
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function updateRecordTypeName(db: SQLiteDatabase, id: string, name: string) {
@@ -989,8 +1147,22 @@ export async function replaceAllDayRecords(
     for (const recordType of recordTypes) {
       const normalizedName = normalizeRecordTypeName(recordType.name);
       const normalizedIconName = normalizeRecordTypeIconName(recordType.icon_name);
+      const normalizedTargetMinutes = normalizeRecordTypeTargetMinutes(recordType.target_minutes);
 
-      if (!normalizedName || recordType.is_builtin) {
+      if (recordType.is_builtin) {
+        await db.runAsync(
+          `
+            UPDATE record_types
+            SET target_minutes = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND is_builtin = 1
+          `,
+          normalizedTargetMinutes,
+          recordType.id,
+        );
+        continue;
+      }
+
+      if (!normalizedName) {
         continue;
       }
 
@@ -1003,14 +1175,16 @@ export async function replaceAllDayRecords(
             is_builtin,
             icon_name,
             color,
+            target_minutes,
             updated_at
           )
-          VALUES (?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, 0, ?, ?, ?, CURRENT_TIMESTAMP)
           ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             sort_order = excluded.sort_order,
             icon_name = excluded.icon_name,
             color = excluded.color,
+            target_minutes = excluded.target_minutes,
             updated_at = CURRENT_TIMESTAMP
           WHERE record_types.is_builtin = 0
         `,
@@ -1019,6 +1193,7 @@ export async function replaceAllDayRecords(
         recordType.sort_order,
         normalizedIconName,
         normalizeRecordTypeColor(recordType.color),
+        normalizedTargetMinutes,
       );
     }
 

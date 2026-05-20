@@ -406,6 +406,7 @@ export default function SettingsScreen() {
         is_builtin: recordType.is_builtin,
         name: recordType.name,
         sort_order: recordType.sort_order,
+        target_minutes: recordType.target_minutes,
       }));
       const exportedAt = new Date().toISOString();
       const exportFile = createExportFile(

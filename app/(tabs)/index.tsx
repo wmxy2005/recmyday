@@ -33,6 +33,7 @@ import {
   getCurrentDayKey,
   getCurrentDayRecord,
   getDayRecordsByDayKey,
+  getMonthRecords,
   getRecentRecords,
   getRecordTypes,
   insertSeparateRecord,
@@ -53,18 +54,27 @@ import {
   formatRecordsRangeParts,
   parseRecordTime,
 } from '@/utils/recordFormat';
-import { getRecordColor, getRecordTypeColor } from '@/utils/recordTypeColor';
+import { getRecordMinutesColor, getRecordProgressColor } from '@/utils/recordColor';
+import {
+  getRecordColor,
+  getRecordTypeColor,
+  getRecordTypeSoftColor,
+} from '@/utils/recordTypeColor';
 import { getRecordIconName, getRecordTypeIconName } from '@/utils/recordTypeIcon';
 import { getDayRecordTypeName, getRecordTypeName } from '@/utils/recordTypeName';
 
 const recordTypeGridBaseColumns = 3;
-const dailyGoalMinutes = 480;
 const recordTypeGridBreakpoints = [
   { minWidth: 1024, columns: 10 },
   { minWidth: 768, columns: 8 },
   { minWidth: 600, columns: 6 },
   { minWidth: 360, columns: 4 },
 ] as const;
+const todayClockTickMarks = Array.from({ length: 12 }, (_, index) => ({
+  angle: index * 30,
+  id: index,
+  isMajor: index % 3 === 0,
+}));
 
 function getIsBeforeStartTime(startTimeMinutes: number) {
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
@@ -101,11 +111,13 @@ function getClockHandsFromRecord(record: DayRecord | null) {
 }
 
 function RecentRecordTypeIcon({
+  backgroundColor,
   blockStyle,
   circleStyle,
   color,
   iconName,
 }: {
+  backgroundColor: string;
   blockStyle: StyleProp<ViewStyle>;
   circleStyle: StyleProp<ViewStyle>;
   color: string;
@@ -122,7 +134,7 @@ function RecentRecordTypeIcon({
 
   return (
     <View onLayout={handleLayout} style={blockStyle}>
-      <View style={circleStyle}>
+      <View style={[circleStyle, { backgroundColor }]}>
         <Ionicons color={color} name={iconName} size={iconSize} />
       </View>
     </View>
@@ -139,6 +151,7 @@ export default function HomeScreen() {
   const [currentDayKey, setCurrentDayKey] = useState('');
   const [todayRecord, setTodayRecord] = useState<DayRecord | null>(null);
   const [todayRecords, setTodayRecords] = useState<DayRecord[]>([]);
+  const [monthRecords, setMonthRecords] = useState<DayRecord[]>([]);
   const [records, setRecords] = useState<DayRecord[]>([]);
   const [recordTypes, setRecordTypes] = useState<RecordType[]>([]);
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
@@ -183,11 +196,18 @@ export default function HomeScreen() {
     }
 
     const settings = await readRecordSettings(db);
-    const [dayKey, currentRecord, recentRecords, nextRecordTypes] = await Promise.all([
+    const [
+      dayKey,
+      currentRecord,
+      recentRecords,
+      nextRecordTypes,
+      currentMonthRecords,
+    ] = await Promise.all([
       getCurrentDayKey(db),
       getCurrentDayRecord(db),
       getRecentRecords(db, settings.recentRecordLimit),
       getRecordTypes(db),
+      getMonthRecords(db, new Date()),
     ]);
     const currentDayRecords = await getDayRecordsByDayKey(db, dayKey);
 
@@ -205,6 +225,7 @@ export default function HomeScreen() {
     setCurrentDayKey(dayKey);
     setTodayRecord(currentRecord);
     setTodayRecords(currentDayRecords);
+    setMonthRecords(currentMonthRecords);
     setShowRecordButton(() => {
       const isBeforeStartTimeNow = getIsBeforeStartTime(settings.startTimeMinutes);
 
@@ -267,11 +288,43 @@ export default function HomeScreen() {
     () => todayRecords.reduce((sum, record) => sum + record.minutes_since_start, 0),
     [todayRecords],
   );
-  const todayProgress = Math.min(
-    1,
-    (separateRecordEnabled ? todayRecord?.minutes_since_start ?? 0 : todayTotalMinutes) /
-      dailyGoalMinutes,
-  );
+  const todayTaskProgresses = useMemo(() => {
+    const typeMap = new Map(recordTypes.map((recordType) => [recordType.id, recordType]));
+    const groupedRecords = monthRecords.reduce<
+      Record<string, { minutes: number; records: DayRecord[] }>
+    >((groups, record) => {
+      if (!groups[record.record_type_id]) {
+        groups[record.record_type_id] = { minutes: 0, records: [] };
+      }
+
+      groups[record.record_type_id].minutes += record.minutes_since_start;
+      groups[record.record_type_id].records.push(record);
+      return groups;
+    }, {});
+    const entries = Object.entries(groupedRecords);
+
+    if (entries.length === 0) {
+      return [];
+    }
+
+    return entries.map(([recordTypeId, group]) => {
+      const recordType = typeMap.get(recordTypeId);
+      const fallbackRecord = group.records[0];
+      const targetMinutes = recordType?.target_minutes ?? null;
+      const progress = targetMinutes ? Math.min(1, group.minutes / targetMinutes) : null;
+
+      return {
+        color: recordType ? getRecordTypeColor(recordType) : getRecordColor(fallbackRecord),
+        id: recordTypeId,
+        minutes: group.minutes,
+        name: recordType
+          ? getRecordTypeName(recordType, t)
+          : getDayRecordTypeName(fallbackRecord, t),
+        progress,
+        targetMinutes,
+      };
+    });
+  }, [monthRecords, recordTypes, t]);
   const todayDisplayRangeParts = separateRecordEnabled
     ? todayRecord
       ? formatRecordRangeParts(todayRecord, startTimeMinutes)
@@ -476,13 +529,18 @@ export default function HomeScreen() {
             hitSlop={10}
             onPress={() => handleOpenDayRecords(currentDayKey)}
             pressedScale={0.9}
-            style={({ pressed }) => [
-              styles.headerIcon,
-              pressed && styles.headerIconPressed,
-              !currentDayKey && styles.headerIconDisabled,
-            ]}
-          >
-            <Ionicons color={colors.text} name="calendar-clear-outline" size={24} />
+          style={({ pressed }) => [
+            styles.headerIcon,
+            dayRecordsPanelVisible && styles.headerIconActive,
+            pressed && styles.headerIconPressed,
+            !currentDayKey && styles.headerIconDisabled,
+          ]}
+        >
+            <Ionicons
+              color={dayRecordsPanelVisible ? colors.surface : colors.text}
+              name="receipt-outline"
+              size={24}
+            />
           </AnimatedPressable>
         </View>
 
@@ -504,96 +562,143 @@ export default function HomeScreen() {
             start={{ x: 1, y: 0 }}
             style={styles.todayPanel}
           >
-            <View style={styles.todayCopy}>
-              {isLoading ? (
-                <ActivityIndicator color={colors.primary} style={styles.loadingIndicator} />
-              ) : todayRecord ? (
-                <>
-                  <Text style={styles.todayRecordTitle}>{t('home.todayRecordTitle')}</Text>
-                  {recordUnit === 'minutes' ? (
-                    <View style={styles.minutesRow}>
-                      <Text style={styles.minutesNumber}>
-                        {separateRecordEnabled ? todayRecord.minutes_since_start : todayTotalMinutes}
-                      </Text>
-                      <Text style={styles.minutesUnit}>{t('date.minutesFullUnit')}</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.minutesText}>
-                      {formatDuration(
-                        separateRecordEnabled ? todayRecord.minutes_since_start : todayTotalMinutes,
-                        recordUnit,
-                      )}
-                    </Text>
-                  )}
-                  {todayDisplayRangeParts ? (
-                    <View style={styles.todayMetaRow}>
-                      <View style={styles.todayTimeFields}>
-                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
-                        <Text style={styles.todayTimeSeparator}>-</Text>
-                        <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
-                        <Ionicons color={colors.surface} name="create" size={17} />
+            <View style={styles.todayPanelTop}>
+              <View style={styles.todayCopy}>
+                {isLoading ? (
+                  <ActivityIndicator color={colors.primary} style={styles.loadingIndicator} />
+                ) : todayRecord ? (
+                  <>
+                    <Text style={styles.todayRecordTitle}>{t('home.todayRecordTitle')}</Text>
+                    {recordUnit === 'minutes' ? (
+                      <View style={styles.minutesRow}>
+                        <Text style={styles.minutesNumber}>
+                          {separateRecordEnabled
+                            ? todayRecord.minutes_since_start
+                            : todayTotalMinutes}
+                        </Text>
+                        <Text style={styles.minutesUnit}>{t('date.minutesFullUnit')}</Text>
                       </View>
-                    </View>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <Text style={styles.todayRecordTitle}>{t('home.todayRecordTitle')}</Text>
-                  <Text style={styles.notRecorded}>{t('home.notRecorded')}</Text>
-                  <Text style={styles.meta}> </Text>
-                </>
-              )}
-              {!isLoading ? (
-                <View style={styles.todayProgressBlock}>
-                  <View style={styles.todayProgressMeta}>
-                    <View style={styles.todayGoalRow}>
-                      <Ionicons color={colors.surface} name="flag-outline" size={16} />
-                      <Text style={styles.todayGoalText}>
-                        {t('home.dailyGoal', { minutes: dailyGoalMinutes })}
+                    ) : (
+                      <Text style={styles.minutesText}>
+                        {formatDuration(
+                          separateRecordEnabled
+                            ? todayRecord.minutes_since_start
+                            : todayTotalMinutes,
+                          recordUnit,
+                        )}
                       </Text>
-                    </View>
-                    <Text style={styles.todayProgressText}>
-                      {Math.round(todayProgress * 100)}%
-                    </Text>
-                  </View>
-                  <View style={styles.todayProgressTrack}>
+                    )}
+                    {todayDisplayRangeParts ? (
+                      <View style={styles.todayMetaRow}>
+                        <View style={styles.todayTimeFields}>
+                          <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
+                          <Text style={styles.todayTimeSeparator}>-</Text>
+                          <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
+                          <Ionicons color={colors.surface} name="create" size={17} />
+                        </View>
+                      </View>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.todayRecordTitle}>{t('home.todayRecordTitle')}</Text>
+                    <Text style={styles.notRecorded}>{t('home.notRecorded')}</Text>
+                    <Text style={styles.meta}> </Text>
+                  </>
+                )}
+              </View>
+              <View style={styles.clockFrame}>
+                <View style={styles.clock}>
+                  {todayClockTickMarks.map((tick) => (
                     <View
+                      key={tick.id}
+                      pointerEvents="none"
                       style={[
-                        styles.todayProgressFill,
-                        { width: `${Math.max(2, todayProgress * 100)}%` },
+                        styles.clockTickPivot,
+                        { transform: [{ rotate: `${tick.angle}deg` }] },
                       ]}
-                    />
+                    >
+                      <View
+                        style={[
+                          styles.clockTick,
+                          tick.isMajor ? styles.clockTickMajor : styles.clockTickMinor,
+                        ]}
+                      />
+                    </View>
+                  ))}
+                  <View
+                    style={[
+                      styles.clockHandPivot,
+                      {
+                        transform: [{ rotate: `${todayClockHands.minute}deg` }],
+                      },
+                    ]}
+                  >
+                    <View style={styles.clockHandLong} />
                   </View>
+                  <View
+                    style={[
+                      styles.clockHandPivot,
+                      {
+                        transform: [{ rotate: `${todayClockHands.hour}deg` }],
+                      },
+                    ]}
+                  >
+                    <View style={styles.clockHandShort} />
+                  </View>
+                  <View style={styles.clockCenter} />
                 </View>
-              ) : null}
-            </View>
-            <View style={styles.clock}>
-              <View style={[styles.clockTick, styles.clockTickTop]} />
-              <View style={[styles.clockTick, styles.clockTickRight]} />
-              <View style={[styles.clockTick, styles.clockTickBottom]} />
-              <View style={[styles.clockTick, styles.clockTickLeft]} />
-              <View
-                style={[
-                  styles.clockHandPivot,
-                  {
-                    transform: [{ rotate: `${todayClockHands.minute}deg` }],
-                  },
-                ]}
-              >
-                <View style={styles.clockHandLong} />
               </View>
-              <View
-                style={[
-                  styles.clockHandPivot,
-                  {
-                    transform: [{ rotate: `${todayClockHands.hour}deg` }],
-                  },
-                ]}
-              >
-                <View style={styles.clockHandShort} />
-              </View>
-              <View style={styles.clockCenter} />
             </View>
+            {!isLoading && todayTaskProgresses.length > 0 ? (
+              <View style={styles.todayProgressBlock}>
+                {todayTaskProgresses.map((item) => {
+                  const progressColor =
+                    item.progress === null ? colors.surface : getRecordProgressColor(item.progress);
+
+                  return (
+                    <View key={item.id} style={styles.todayTaskProgressRow}>
+                      <View style={styles.todayProgressInfo}>
+                        <View style={styles.todayGoalRow}>
+                          <Ionicons color={item.color} name="flag-outline" size={15} />
+                          <Text numberOfLines={1} style={styles.todayGoalText}>
+                            {item.name}
+                          </Text>
+                        </View>
+                        <Text numberOfLines={1} style={styles.todayGoalValue}>
+                          {item.targetMinutes
+                            ? t('home.taskGoal', {
+                                minutes: item.minutes,
+                                target: item.targetMinutes,
+                              })
+                            : t('home.taskMinutes', { minutes: item.minutes })}
+                        </Text>
+                      </View>
+                      {item.progress !== null ? (
+                        <View style={styles.todayProgressVisual}>
+                          <View style={styles.todayProgressTrack}>
+                            <View
+                              style={[
+                                styles.todayProgressFill,
+                                {
+                                  backgroundColor: progressColor,
+                                  width: `${Math.max(2, item.progress * 100)}%`,
+                                },
+                              ]}
+                            />
+                          </View>
+                          <View style={styles.todayProgressPercentBox}>
+                            <Text style={styles.todayProgressText}>
+                              {Math.round(item.progress * 100)}%
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
           </LinearGradient>
         </AnimatedPressable>
 
@@ -620,6 +725,7 @@ export default function HomeScreen() {
                 <View style={styles.recordGroupRows}>
                   {group.records.map((record) => {
                     const recordColor = getRecordColor(record);
+                    const recordMinutesColor = getRecordMinutesColor(record.minutes_since_start);
 
                     return (
                       <AnimatedPressable
@@ -632,14 +738,13 @@ export default function HomeScreen() {
                         pressedScale={0.985}
                         style={styles.recordRow}
                       >
-                        {!separateRecordEnabled ? (
-                          <RecentRecordTypeIcon
-                            blockStyle={styles.recordTypeIconBlock}
-                            circleStyle={styles.recordTypeIconCircle}
-                            color={recordColor}
-                            iconName={getRecordIconName(record)}
-                          />
-                        ) : null}
+                        <RecentRecordTypeIcon
+                          backgroundColor={getRecordTypeSoftColor(recordColor)}
+                          blockStyle={styles.recordTypeIconBlock}
+                          circleStyle={styles.recordTypeIconCircle}
+                          color={recordColor}
+                          iconName={getRecordIconName(record)}
+                        />
                         <View style={styles.recordMain}>
                           <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordTypeLabel}>
                             {getDayRecordTypeName(record, t)}
@@ -651,13 +756,13 @@ export default function HomeScreen() {
                         <View style={styles.recordValueRow}>
                           {recordUnit === 'minutes' ? (
                             <>
-                              <Text style={[styles.recordMinutes, { color: recordColor }]}>
+                              <Text style={[styles.recordMinutes, { color: recordMinutesColor }]}>
                                 {record.minutes_since_start}
                               </Text>
                               <Text style={styles.recordUnitText}>{t('date.minutesFullUnit')}</Text>
                             </>
                           ) : (
-                            <Text style={[styles.recordMinutes, { color: recordColor }]}>
+                            <Text style={[styles.recordMinutes, { color: recordMinutesColor }]}>
                               {formatDuration(record.minutes_since_start, recordUnit)}
                             </Text>
                           )}
@@ -845,6 +950,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     borderWidth: 1,
     borderColor: colors.border,
   },
+  headerIconActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
   headerIconPressed: {
     backgroundColor: colors.surfaceElevated,
   },
@@ -858,9 +967,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     overflow: 'hidden',
   },
   todayPanel: {
-    minHeight: 178,
+    minHeight: 196,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.lg,
+    gap: spacing.md,
+  },
+  todayPanelTop: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -972,17 +1085,24 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '900',
   },
   todayProgressBlock: {
-    marginTop: spacing.md,
+    width: '100%',
     paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.24)',
+    gap: spacing.sm,
   },
-  todayProgressMeta: {
+  todayTaskProgressRow: {
+    minHeight: 24,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: spacing.md,
-    marginBottom: spacing.sm,
+  },
+  todayProgressInfo: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   todayGoalRow: {
     flex: 1,
@@ -995,6 +1115,25 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     color: colors.surface,
     fontSize: 13,
     fontWeight: '900',
+    flexShrink: 1,
+  },
+  todayGoalValue: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12,
+    fontWeight: '900',
+    flexShrink: 0,
+  },
+  todayProgressVisual: {
+    width: 132,
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  todayProgressPercentBox: {
+    width: 34,
+    alignItems: 'flex-end',
+    flexShrink: 0,
   },
   todayProgressText: {
     color: colors.surface,
@@ -1002,6 +1141,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '900',
   },
   todayProgressTrack: {
+    flex: 1,
+    minWidth: 0,
     height: 8,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.28)',
@@ -1012,41 +1153,47 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     borderRadius: 999,
     backgroundColor: colors.surface,
   },
-  clock: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderWidth: 9,
-    borderColor: 'rgba(238,240,255,0.72)',
+  clockFrame: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(238,240,255,0.86)',
+    flexShrink: 0,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.14,
     shadowRadius: 14,
     elevation: 5,
   },
+  clock: {
+    width: 106,
+    height: 106,
+    borderRadius: 53,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   clockTick: {
     position: 'absolute',
-    width: 3,
-    height: 7,
     borderRadius: 2,
     backgroundColor: '#8B8CFF',
   },
-  clockTickTop: {
-    top: 11,
+  clockTickPivot: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
   },
-  clockTickRight: {
-    right: 13,
-    transform: [{ rotate: '90deg' }],
+  clockTickMajor: {
+    top: 10,
+    width: 3,
+    height: 8,
   },
-  clockTickBottom: {
-    bottom: 11,
-  },
-  clockTickLeft: {
-    left: 13,
-    transform: [{ rotate: '90deg' }],
+  clockTickMinor: {
+    top: 12,
+    width: 2,
+    height: 5,
+    opacity: 0.66,
   },
   clockHandPivot: {
     position: 'absolute',
@@ -1087,10 +1234,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     ...typography.sectionTitle,
   },
   recordList: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   recordGroup: {
-    gap: spacing.sm,
+    gap: 4,
   },
   recordGroupHeader: {
     minHeight: 28,
@@ -1116,10 +1263,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontWeight: '800',
   },
   recordGroupRows: {
-    gap: spacing.sm,
+    gap: 4,
   },
   recordRow: {
-    minHeight: 72,
+    minHeight: 58,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
@@ -1132,21 +1279,16 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.sm,
   },
   recordTypeIconBlock: {
-    alignSelf: 'stretch',
-    aspectRatio: 1,
-    marginLeft: -spacing.md,
-    marginVertical: -spacing.sm,
-    borderTopLeftRadius: radius.md - 1,
-    borderBottomLeftRadius: radius.md - 1,
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
     overflow: 'hidden',
-    backgroundColor: colors.surface,
     flexShrink: 0,
   },
   recordTypeIconCircle: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surfaceElevated,
   },
   recordTypeLabel: {
     flexShrink: 1,
@@ -1163,7 +1305,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   recordMain: {
     flex: 1,
     minWidth: 0,
-    marginLeft: -spacing.xs,
+    marginLeft: spacing.xs,
   },
   recordDate: {
     color: colors.text,

@@ -1,10 +1,14 @@
 import type { ImportDayRecord, ImportRecordType } from '@/data/database';
-import { builtInRecordTypes, defaultRecordTypeId } from '@/data/database';
+import {
+  builtInRecordTypes,
+  defaultRecordTypeId,
+  maxRecordTypeTargetMinutes,
+} from '@/data/database';
 import { fallbackRecordTypeColor, normalizeRecordTypeColor } from '@/utils/recordTypeColor';
 import { fallbackRecordTypeIconName, normalizeRecordTypeIconName } from '@/utils/recordTypeIcon';
 
-const exportSchemaVersion = 4;
-const supportedExportSchemaVersions = [1, 2, 3, 4] as const;
+const exportSchemaVersion = 5;
+const supportedExportSchemaVersions = [1, 2, 3, 4, 5] as const;
 const exportAppId = 'recmyday';
 export const maxImportFileBytes = 2 * 1024 * 1024;
 export const maxImportRecordCount = 10000;
@@ -81,6 +85,12 @@ function isImportRecordType(value: unknown): value is ImportRecordType {
     Number.isInteger(recordType.sort_order) &&
     (recordType.icon_name === undefined || typeof recordType.icon_name === 'string') &&
     (recordType.color === undefined || typeof recordType.color === 'string') &&
+    (recordType.target_minutes === null ||
+      recordType.target_minutes === undefined ||
+      (typeof recordType.target_minutes === 'number' &&
+        Number.isInteger(recordType.target_minutes) &&
+        recordType.target_minutes >= 1 &&
+        recordType.target_minutes <= maxRecordTypeTargetMinutes)) &&
     (recordType.is_builtin === 0 || recordType.is_builtin === 1)
   );
 }
@@ -99,6 +109,10 @@ function getImportRecordTypeColor(recordType: ImportRecordType) {
       builtInRecordTypes.find((builtInType) => builtInType.id === recordType.id)?.color ??
       fallbackRecordTypeColor,
   );
+}
+
+function getImportRecordTypeTargetMinutes(recordType: ImportRecordType) {
+  return recordType.target_minutes ?? null;
 }
 
 export function createExportFile(
@@ -161,6 +175,7 @@ export function parseExportFileData(text: string) {
       ...recordType,
       icon_name: getImportRecordTypeIconName(recordType),
       color: getImportRecordTypeColor(recordType),
+      target_minutes: getImportRecordTypeTargetMinutes(recordType),
     })),
   };
 }

@@ -6,6 +6,7 @@ import {
   parseExportFile,
   parseExportFileData,
 } from '@/utils/backupFile';
+import { normalizeRecordTypeColor } from '@/utils/recordTypeColor';
 
 const record = {
   day_key: '2026-05-17',
@@ -61,6 +62,7 @@ describe('backup file format', () => {
         name: '专注',
         sort_order: 5,
         is_builtin: 0,
+        target_minutes: 120,
       },
     ];
     const file = createExportFile(
@@ -95,8 +97,9 @@ describe('backup file format', () => {
     expect(parsed.recordTypes).toEqual([
       {
         ...recordTypes[0],
-        color: '#3B82F6',
+        color: '#635BFF',
         icon_name: 'pricetag-outline',
+        target_minutes: null,
       },
     ]);
   });
@@ -122,9 +125,59 @@ describe('backup file format', () => {
     expect(parsed.recordTypes).toEqual([
       {
         ...recordTypes[0],
-        color: '#3B82F6',
+        color: '#635BFF',
+        target_minutes: null,
       },
     ]);
+  });
+
+  it('keeps old custom record type targets unset', () => {
+    const recordTypes = [
+      {
+        color: '#14B8A6',
+        id: 'custom-focus',
+        icon_name: 'bulb-outline' as const,
+        name: '涓撴敞',
+        sort_order: 5,
+        is_builtin: 0,
+      },
+    ];
+    const file = createExportFile(
+      [{ ...record, record_type_id: 'custom-focus' }],
+      '2026-05-17T10:31:00.000Z',
+      recordTypes,
+    );
+
+    const parsed = parseExportFileData(JSON.stringify(file));
+
+    expect(parsed.recordTypes[0].target_minutes).toBeNull();
+  });
+
+  it('round-trips unset record type target minutes', () => {
+    const recordTypes = [
+      {
+        color: '#14B8A6',
+        id: 'custom-focus',
+        icon_name: 'bulb-outline' as const,
+        name: '涓撴敞',
+        sort_order: 5,
+        is_builtin: 0,
+        target_minutes: null,
+      },
+    ];
+    const file = createExportFile(
+      [{ ...record, record_type_id: 'custom-focus' }],
+      '2026-05-17T10:31:00.000Z',
+      recordTypes,
+    );
+
+    const parsed = parseExportFileData(JSON.stringify(file));
+
+    expect(parsed.recordTypes[0].target_minutes).toBeNull();
+  });
+
+  it('preserves legacy record type colors', () => {
+    expect(normalizeRecordTypeColor('#3B82F6')).toBe('#3B82F6');
   });
 
   it('normalizes invalid imported record type icons', () => {
@@ -166,6 +219,7 @@ describe('backup file format', () => {
         name: '涓撴敞',
         sort_order: 5,
         is_builtin: 0,
+        target_minutes: 120,
       },
     ];
     const payload = {
@@ -183,6 +237,95 @@ describe('backup file format', () => {
 
     const parsed = parseExportFileData(JSON.stringify(file));
 
-    expect(parsed.recordTypes[0].color).toBe('#3B82F6');
+    expect(parsed.recordTypes[0].color).toBe('#635BFF');
+  });
+
+  it('rejects invalid imported record type target minutes', () => {
+    const exportedAt = '2026-05-17T10:31:00.000Z';
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        color: '#14B8A6',
+        icon_name: 'bulb-outline',
+        name: '涓撴敞',
+        sort_order: 5,
+        is_builtin: 0,
+        target_minutes: 0,
+      },
+    ];
+    const payload = {
+      app: 'recmyday' as const,
+      schemaVersion: 5 as const,
+      exportedAt,
+      recordCount: 1,
+      recordTypes,
+      records: [{ ...record, record_type_id: 'custom-focus' }],
+    };
+    const file = {
+      ...payload,
+      checksum: createExportChecksum(payload as never),
+    };
+
+    expect(() => parseExportFileData(JSON.stringify(file))).toThrow('Invalid export file');
+  });
+
+  it('accepts the monthly record type target minute maximum', () => {
+    const exportedAt = '2026-05-17T10:31:00.000Z';
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        color: '#14B8A6',
+        icon_name: 'bulb-outline',
+        name: '涓撴敞',
+        sort_order: 5,
+        is_builtin: 0,
+        target_minutes: 99999,
+      },
+    ];
+    const payload = {
+      app: 'recmyday' as const,
+      schemaVersion: 5 as const,
+      exportedAt,
+      recordCount: 1,
+      recordTypes,
+      records: [{ ...record, record_type_id: 'custom-focus' }],
+    };
+    const file = {
+      ...payload,
+      checksum: createExportChecksum(payload as never),
+    };
+
+    const parsed = parseExportFileData(JSON.stringify(file));
+
+    expect(parsed.recordTypes[0].target_minutes).toBe(99999);
+  });
+
+  it('rejects imported record type target minutes above the monthly maximum', () => {
+    const exportedAt = '2026-05-17T10:31:00.000Z';
+    const recordTypes = [
+      {
+        id: 'custom-focus',
+        color: '#14B8A6',
+        icon_name: 'bulb-outline',
+        name: '涓撴敞',
+        sort_order: 5,
+        is_builtin: 0,
+        target_minutes: 100000,
+      },
+    ];
+    const payload = {
+      app: 'recmyday' as const,
+      schemaVersion: 5 as const,
+      exportedAt,
+      recordCount: 1,
+      recordTypes,
+      records: [{ ...record, record_type_id: 'custom-focus' }],
+    };
+    const file = {
+      ...payload,
+      checksum: createExportChecksum(payload as never),
+    };
+
+    expect(() => parseExportFileData(JSON.stringify(file))).toThrow('Invalid export file');
   });
 });

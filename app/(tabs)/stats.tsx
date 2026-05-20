@@ -9,16 +9,32 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  Pressable as GesturePressable,
+} from 'react-native-gesture-handler';
+import ReanimatedSwipeable, {
+  type SwipeableMethods,
+} from 'react-native-gesture-handler/ReanimatedSwipeable';
 
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { AnimatedSheetModal } from '@/components/AnimatedSheetModal';
+import { ConfirmationDialog } from '@/components/ConfirmationDialog';
 import { DayRecordsPanel } from '@/components/DayRecordsPanel';
-import { type DayRecord, type RecordType, getMonthRecords, getRecordTypes } from '@/data/database';
+import {
+  type DayRecord,
+  type RecordType,
+  clearRecordTypeTargetMinutes,
+  getMonthRecords,
+  getRecordTypes,
+  maxRecordTypeTargetMinutes,
+  updateRecordTypeTargetMinutes,
+} from '@/data/database';
 import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { componentSizes, radius, spacing, typography, useAppTheme } from '@/theme';
 import {
@@ -30,12 +46,17 @@ import {
   type RecordUnit,
 } from '@/utils/date';
 import { getRecordMinutesColor } from '@/utils/recordColor';
-import { getRecordTypeColor } from '@/utils/recordTypeColor';
-import { allRecordTypesFilterIconName, getRecordTypeIconName } from '@/utils/recordTypeIcon';
-import { getRecordTypeName } from '@/utils/recordTypeName';
+import { getRecordTypeColor, getRecordTypeSoftColor } from '@/utils/recordTypeColor';
+import {
+  allRecordTypesFilterIconName,
+  getRecordIconName,
+  getRecordTypeIconName,
+} from '@/utils/recordTypeIcon';
+import { getDayRecordTypeName, getRecordTypeName } from '@/utils/recordTypeName';
 
 const chartMaxHeight = 86;
 const chartMinHeight = 12;
+const targetDeleteActionWidth = 82;
 const filterTypeGridBaseColumns = 3;
 const filterTypeGridBreakpoints = [
   { minWidth: 1024, columns: 10 },
@@ -65,12 +86,20 @@ export default function StatsScreen() {
   const [selectedRecordTypeIds, setSelectedRecordTypeIds] = useState<string[] | null>(
     () => sessionSelectedRecordTypeIds,
   );
+  const [targetPanelVisible, setTargetPanelVisible] = useState(false);
+  const [targetEditorVisible, setTargetEditorVisible] = useState(false);
+  const [targetEditorMode, setTargetEditorMode] = useState<'add' | 'edit'>('add');
+  const [targetEditorTypeId, setTargetEditorTypeId] = useState<string | null>(null);
+  const [targetMinuteDraft, setTargetMinuteDraft] = useState('');
+  const [targetMinuteErrorVisible, setTargetMinuteErrorVisible] = useState(false);
+  const [pendingDeleteTargetTypeId, setPendingDeleteTargetTypeId] = useState<string | null>(null);
   const [recordTypeFilterVisible, setRecordTypeFilterVisible] = useState(false);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [separateRecordEnabled, setSeparateRecordEnabled] = useState(false);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [dayRecordsSheetVisible, setDayRecordsSheetVisible] = useState(false);
   const [filterTypeGridWidth, setFilterTypeGridWidth] = useState(0);
+  const [targetTypeGridWidth, setTargetTypeGridWidth] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const hasLoadedRef = useRef(false);
   const filterTypeGridColumns = getFilterTypeGridColumns(windowWidth);
@@ -81,7 +110,27 @@ export default function StatsScreen() {
             filterTypeGridColumns,
         )
       : undefined;
+  const targetTypeCardWidth =
+    targetTypeGridWidth > 0
+      ? Math.floor(
+          (targetTypeGridWidth - spacing.sm * (filterTypeGridColumns - 1)) /
+            filterTypeGridColumns,
+        )
+      : undefined;
   const weekdays = t('stats.weekdaysShort', { returnObjects: true }) as string[];
+  const targetedRecordTypes = useMemo(
+    () => recordTypes.filter((recordType) => recordType.target_minutes !== null),
+    [recordTypes],
+  );
+  const untargetedRecordTypes = useMemo(
+    () => recordTypes.filter((recordType) => recordType.target_minutes === null),
+    [recordTypes],
+  );
+  const targetEditorRecordType = targetEditorTypeId
+    ? recordTypes.find((recordType) => recordType.id === targetEditorTypeId)
+    : null;
+  const canShowTargetEditorForm =
+    targetEditorMode === 'edit' ? Boolean(targetEditorRecordType) : untargetedRecordTypes.length > 0;
 
   const loadData = useCallback(async (showLoading = false) => {
     if (showLoading) {
@@ -121,6 +170,7 @@ export default function StatsScreen() {
   );
 
   const isFilteringRecordTypes = selectedRecordTypeIds !== null;
+  const isRecordTypeFilterButtonActive = recordTypeFilterVisible || isFilteringRecordTypes;
   const filteredRecords = useMemo(() => {
     if (!selectedRecordTypeIds) {
       return records;
@@ -154,6 +204,43 @@ export default function StatsScreen() {
       {},
     );
   }, [recordsByDay]);
+  const monthlyTypeStats = useMemo(() => {
+    const typeOrder = new Map(
+      recordTypes.map((recordType, index) => [recordType.id, recordType.sort_order ?? index]),
+    );
+    const statsByType = filteredRecords.reduce<
+      Record<string, { record: DayRecord; totalMinutes: number }>
+    >((map, record) => {
+      const current = map[record.record_type_id];
+
+      if (current) {
+        current.totalMinutes += record.minutes_since_start;
+      } else {
+        map[record.record_type_id] = {
+          record,
+          totalMinutes: record.minutes_since_start,
+        };
+      }
+
+      return map;
+    }, {});
+
+    return Object.entries(statsByType)
+      .map(([recordTypeId, stat]) => ({
+        ...stat,
+        recordTypeId,
+        sortOrder: typeOrder.get(recordTypeId) ?? Number.MAX_SAFE_INTEGER,
+      }))
+      .filter((stat) => stat.totalMinutes > 0)
+      .sort(
+        (left, right) =>
+          left.sortOrder - right.sortOrder || right.totalMinutes - left.totalMinutes,
+      );
+  }, [filteredRecords, recordTypes]);
+  const maxMonthlyTypeMinutes = useMemo(
+    () => Math.max(...monthlyTypeStats.map((stat) => stat.totalMinutes), 1),
+    [monthlyTypeStats],
+  );
 
   const cells = useMemo(() => getMonthCalendarCells(monthDate), [monthDate]);
   const isCurrentMonth = useMemo(() => {
@@ -233,10 +320,81 @@ export default function StatsScreen() {
     setSelectedRecordTypeIds(null);
   };
 
+  const handleOpenAddTarget = () => {
+    setTargetEditorMode('add');
+    setTargetEditorTypeId(untargetedRecordTypes[0]?.id ?? null);
+    setTargetMinuteDraft('');
+    setTargetMinuteErrorVisible(false);
+    setTargetEditorVisible(true);
+  };
+
+  const handleOpenEditTarget = (recordType: RecordType) => {
+    setTargetEditorMode('edit');
+    setTargetEditorTypeId(recordType.id);
+    setTargetMinuteDraft(String(recordType.target_minutes ?? ''));
+    setTargetMinuteErrorVisible(false);
+    setTargetEditorVisible(true);
+  };
+
+  const handleCloseTargetEditor = () => {
+    setTargetEditorVisible(false);
+  };
+
+  const handleSaveTargetEditor = async () => {
+    if (!targetEditorTypeId) {
+      return;
+    }
+
+    const minutes = Number(targetMinuteDraft);
+
+    if (
+      !Number.isInteger(minutes) ||
+      minutes < 1 ||
+      minutes > maxRecordTypeTargetMinutes
+    ) {
+      setTargetMinuteErrorVisible(true);
+      return;
+    }
+
+    const nextMinutes = await updateRecordTypeTargetMinutes(db, targetEditorTypeId, minutes);
+    setRecordTypes((types) =>
+      types.map((type) =>
+        type.id === targetEditorTypeId ? { ...type, target_minutes: nextMinutes } : type,
+      ),
+    );
+    setTargetMinuteDraft(String(nextMinutes));
+    setTargetMinuteErrorVisible(false);
+    setTargetEditorVisible(false);
+  };
+
+  const handleConfirmDeleteTarget = async () => {
+    if (!pendingDeleteTargetTypeId) {
+      return;
+    }
+
+    const recordTypeId = pendingDeleteTargetTypeId;
+
+    await clearRecordTypeTargetMinutes(db, recordTypeId);
+    setPendingDeleteTargetTypeId(null);
+    setRecordTypes((types) =>
+      types.map((type) =>
+        type.id === recordTypeId ? { ...type, target_minutes: null } : type,
+      ),
+    );
+  };
+
   const handleFilterTypeGridLayout = (event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width;
 
     setFilterTypeGridWidth((current) =>
+      Math.abs(current - nextWidth) < 1 ? current : nextWidth,
+    );
+  };
+
+  const handleTargetTypeGridLayout = (event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+
+    setTargetTypeGridWidth((current) =>
       Math.abs(current - nextWidth) < 1 ? current : nextWidth,
     );
   };
@@ -252,6 +410,24 @@ export default function StatsScreen() {
           <Text style={styles.screenTitle}>{t('tabs.stats')}</Text>
           <View style={styles.headerActions}>
             <AnimatedPressable
+              accessibilityLabel={t('stats.manageGoals')}
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={() => setTargetPanelVisible(true)}
+              pressedScale={0.9}
+              style={({ pressed }) => [
+                styles.headerIconButton,
+                targetPanelVisible && styles.headerIconButtonActive,
+                pressed && styles.headerIconButtonPressed,
+              ]}
+            >
+              <Ionicons
+                color={targetPanelVisible ? colors.surface : colors.text}
+                name="flag-outline"
+                size={23}
+              />
+            </AnimatedPressable>
+            <AnimatedPressable
               accessibilityLabel={t('stats.filterRecordTypes')}
               accessibilityRole="button"
               hitSlop={10}
@@ -259,12 +435,12 @@ export default function StatsScreen() {
               pressedScale={0.9}
               style={({ pressed }) => [
                 styles.headerIconButton,
-                isFilteringRecordTypes && styles.headerIconButtonActive,
+                isRecordTypeFilterButtonActive && styles.headerIconButtonActive,
                 pressed && styles.headerIconButtonPressed,
               ]}
             >
               <Ionicons
-                color={isFilteringRecordTypes ? colors.surface : colors.text}
+                color={isRecordTypeFilterButtonActive ? colors.surface : colors.text}
                 name="filter"
                 size={23}
               />
@@ -362,6 +538,7 @@ export default function StatsScreen() {
                   const dayTotal = cell.dayKey ? dayTotals[cell.dayKey] : undefined;
                   const isToday = cell.dayKey === todayKey;
                   const isSelected = selectedDayKey !== null && selectedDayKey === cell.dayKey;
+                  const isSelectedToday = isSelected && isToday;
 
                   return (
                     <AnimatedPressable
@@ -380,6 +557,7 @@ export default function StatsScreen() {
                         !cell.day && styles.emptyCell,
                         isToday && styles.todayCell,
                         isSelected && styles.dayCellSelected,
+                        isSelectedToday && styles.selectedTodayCell,
                       ]}
                     >
                       {cell.day ? (
@@ -417,6 +595,66 @@ export default function StatsScreen() {
               </View>
             ))}
           </View>
+        </View>
+
+        <View style={styles.typeStatsCard}>
+          <View style={styles.typeStatsHeader}>
+            <Text style={styles.typeStatsTitle}>{t('stats.monthByType')}</Text>
+          </View>
+          {isLoading ? (
+            <View style={styles.typeStatsEmpty}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : monthlyTypeStats.length > 0 ? (
+            <View style={styles.typeStatsList}>
+              {monthlyTypeStats.map((stat) => {
+                const typeColor = getRecordTypeColor({
+                  id: stat.record.record_type_id,
+                  color: stat.record.record_type_color,
+                });
+                const progressPercent = Math.max(
+                  6,
+                  Math.round((stat.totalMinutes / maxMonthlyTypeMinutes) * 100),
+                );
+                const progressWidth = `${progressPercent}%` as `${number}%`;
+
+                return (
+                  <View key={stat.recordTypeId} style={styles.typeStatsRow}>
+                    <Ionicons
+                      color={typeColor}
+                      name={getRecordIconName(stat.record)}
+                      size={15}
+                      style={styles.typeStatsIcon}
+                    />
+                    <Text numberOfLines={1} style={styles.typeStatsName}>
+                      {getDayRecordTypeName(stat.record, t)}
+                    </Text>
+                    <View style={styles.typeStatsVisual}>
+                      <View style={styles.typeStatsTrack}>
+                        <View
+                          style={[
+                            styles.typeStatsProgress,
+                            {
+                              backgroundColor: typeColor,
+                              width: progressWidth,
+                            },
+                          ]}
+                        />
+                      </View>
+                    </View>
+                    <Text numberOfLines={1} style={[styles.typeStatsValue, { color: typeColor }]}>
+                      {formatDuration(stat.totalMinutes, recordUnit)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.typeStatsEmpty}>
+              <Ionicons color={colors.mutedSubtle} name="pie-chart-outline" size={24} />
+              <Text style={styles.typeStatsEmptyText}>{t('stats.noRecord')}</Text>
+            </View>
+          )}
         </View>
         </ScrollView>
       <AnimatedSheetModal
@@ -543,6 +781,264 @@ export default function StatsScreen() {
           })}
         </View>
       </AnimatedSheetModal>
+      <AnimatedSheetModal
+        backdropStyle={styles.modalBackdrop}
+        onClose={() => setTargetPanelVisible(false)}
+        sheetStyle={styles.filterSheet}
+        visible={targetPanelVisible}
+      >
+        <View style={styles.sheetGrabber} />
+        <View style={styles.sheetHeader}>
+          <View style={styles.sheetTitleGroup}>
+            <Text style={styles.sheetTitle}>{t('stats.taskGoals')}</Text>
+            <Text style={styles.sheetSubtitle}>{t('stats.taskGoalsDescription')}</Text>
+          </View>
+          <AnimatedPressable
+            accessibilityLabel={t('stats.closeRecords')}
+            accessibilityRole="button"
+            onPress={() => setTargetPanelVisible(false)}
+            pressedScale={0.9}
+            style={styles.sheetCloseButton}
+          >
+            <Ionicons color={colors.textSoft} name="close" size={24} />
+          </AnimatedPressable>
+        </View>
+        <ScrollView
+          contentContainerStyle={styles.targetList}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.targetScroll}
+        >
+          {targetedRecordTypes.length > 0 ? (
+            targetedRecordTypes.map((recordType) => (
+              <SwipeTargetRow
+                colors={colors}
+                key={recordType.id}
+                onDelete={(id) => setPendingDeleteTargetTypeId(id)}
+                onEdit={handleOpenEditTarget}
+                recordType={recordType}
+                styles={styles}
+                t={t}
+              />
+            ))
+          ) : (
+            <View style={styles.emptyTargetBox}>
+              <Ionicons color={colors.muted} name="flag-outline" size={24} />
+              <Text style={styles.emptyTargetText}>{t('stats.noTaskGoals')}</Text>
+            </View>
+          )}
+        </ScrollView>
+        <AnimatedPressable
+          accessibilityRole="button"
+          onPress={handleOpenAddTarget}
+          pressedScale={0.98}
+          style={styles.addTargetButton}
+        >
+          <Ionicons color={colors.surface} name="add" size={22} />
+          <Text style={styles.addTargetText}>{t('stats.addTaskGoal')}</Text>
+        </AnimatedPressable>
+      </AnimatedSheetModal>
+      <AnimatedSheetModal
+        backdropStyle={styles.modalBackdrop}
+        onClose={handleCloseTargetEditor}
+        sheetStyle={styles.filterSheet}
+        visible={targetEditorVisible}
+      >
+        <View style={styles.sheetGrabber} />
+        <View style={styles.sheetHeader}>
+          <View style={styles.sheetTitleGroup}>
+            <Text style={styles.sheetTitle}>
+              {targetEditorMode === 'add' ? t('stats.addTaskGoal') : t('stats.editTaskGoal')}
+            </Text>
+            <Text style={styles.sheetSubtitle}>
+              {targetEditorMode === 'add'
+                ? t('stats.chooseTaskGoalType')
+                : t('stats.editTaskGoalDescription')}
+            </Text>
+          </View>
+          <AnimatedPressable
+            accessibilityLabel={t('stats.closeRecords')}
+            accessibilityRole="button"
+            onPress={handleCloseTargetEditor}
+            pressedScale={0.9}
+            style={styles.sheetCloseButton}
+          >
+            <Ionicons color={colors.textSoft} name="close" size={24} />
+          </AnimatedPressable>
+        </View>
+
+        {targetEditorMode === 'add' ? (
+          untargetedRecordTypes.length > 0 ? (
+            <View onLayout={handleTargetTypeGridLayout} style={styles.filterCardGrid}>
+              {untargetedRecordTypes.map((recordType) => {
+                const isActive = targetEditorTypeId === recordType.id;
+                const typeColor = getRecordTypeColor(recordType);
+
+                return (
+                  <AnimatedPressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: isActive }}
+                    key={recordType.id}
+                    onPress={() => setTargetEditorTypeId(recordType.id)}
+                    pressedScale={0.985}
+                    style={[
+                      styles.filterTypeCard,
+                      targetTypeCardWidth !== undefined && { width: targetTypeCardWidth },
+                      isActive && [
+                        styles.filterTypeCardActive,
+                        { borderColor: typeColor, shadowColor: typeColor },
+                      ],
+                    ]}
+                  >
+                    <View style={[styles.filterTypeIcon, isActive && styles.filterTypeIconActive]}>
+                      <Ionicons
+                        color={typeColor}
+                        name={getRecordTypeIconName(recordType)}
+                        size={22}
+                      />
+                    </View>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.filterTypeText,
+                        isActive && styles.filterTypeTextActive,
+                        isActive && { color: typeColor },
+                      ]}
+                    >
+                      {getRecordTypeName(recordType, t)}
+                    </Text>
+                    <View
+                      style={[
+                        styles.filterTypeCheck,
+                        isActive && [
+                          styles.radioActive,
+                          { backgroundColor: typeColor, borderColor: typeColor },
+                        ],
+                      ]}
+                    >
+                      {isActive ? (
+                        <Ionicons color={colors.surface} name="checkmark" size={14} />
+                      ) : null}
+                    </View>
+                  </AnimatedPressable>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.emptyTargetBox}>
+              <Ionicons color={colors.muted} name="checkmark-circle-outline" size={24} />
+              <Text style={styles.emptyTargetText}>{t('stats.allTaskGoalsSet')}</Text>
+            </View>
+          )
+        ) : targetEditorRecordType ? (
+          <View style={styles.lockedTargetTypeRow}>
+            <View
+              style={[
+                styles.targetIcon,
+                { backgroundColor: getRecordTypeSoftColor(getRecordTypeColor(targetEditorRecordType)) },
+              ]}
+            >
+              <Ionicons
+                color={getRecordTypeColor(targetEditorRecordType)}
+                name={getRecordTypeIconName(targetEditorRecordType)}
+                size={22}
+              />
+            </View>
+            <View style={styles.targetMain}>
+              <Text numberOfLines={1} style={styles.targetName}>
+                {getRecordTypeName(targetEditorRecordType, t)}
+              </Text>
+              <Text style={styles.targetMeta}>{t('stats.taskGoalTypeLocked')}</Text>
+            </View>
+            <Ionicons color={colors.mutedSubtle} name="lock-closed-outline" size={18} />
+          </View>
+        ) : null}
+
+        {canShowTargetEditorForm ? (
+          <>
+            <View style={styles.targetEditorBlock}>
+              <View
+                style={[
+                  styles.targetEditorInputRow,
+                  targetMinuteErrorVisible && styles.targetInputError,
+                ]}
+              >
+                <View style={styles.targetEditorInputMain}>
+                  <View style={styles.targetEditorInputIcon}>
+                    <Ionicons color={colors.highlight} name="flag-outline" size={22} />
+                  </View>
+                  <Text style={styles.targetEditorLabel}>{t('stats.targetMinutes')}</Text>
+                </View>
+                <TextInput
+                  accessibilityLabel={t('stats.targetMinutes')}
+                  inputMode="numeric"
+                  keyboardType="number-pad"
+                  onChangeText={(value) => {
+                    setTargetMinuteErrorVisible(false);
+                    setTargetMinuteDraft(value);
+                  }}
+                  onSubmitEditing={() => {
+                    void handleSaveTargetEditor();
+                  }}
+                  placeholder={t('stats.targetMinutesPlaceholder')}
+                  placeholderTextColor={colors.mutedSubtle}
+                  returnKeyType="done"
+                  selectTextOnFocus
+                  style={styles.targetEditorInput}
+                  value={targetMinuteDraft}
+                />
+              </View>
+              {targetMinuteErrorVisible ? (
+                <Text style={styles.targetError}>{t('stats.invalidTargetMinutes')}</Text>
+              ) : null}
+            </View>
+
+            <View style={styles.targetEditorActions}>
+              <AnimatedPressable
+                accessibilityRole="button"
+                containerStyle={styles.targetCancelButtonContainer}
+                onPress={handleCloseTargetEditor}
+                pressedScale={0.96}
+                pressedTranslateY={1}
+                style={styles.targetCancelButton}
+              >
+                <Text style={styles.targetCancelText}>{t('stats.cancel')}</Text>
+              </AnimatedPressable>
+              <AnimatedPressable
+                accessibilityRole="button"
+                containerStyle={styles.targetSaveButtonContainer}
+                disabled={targetEditorMode === 'add' && !targetEditorTypeId}
+                onPress={() => {
+                  void handleSaveTargetEditor();
+                }}
+                pressedScale={0.96}
+                pressedTranslateY={1}
+                style={[
+                  styles.targetSaveButton,
+                  targetEditorMode === 'add' &&
+                    !targetEditorTypeId &&
+                    styles.targetSaveButtonDisabled,
+                ]}
+              >
+                <Text style={styles.targetSaveText}>{t('stats.save')}</Text>
+              </AnimatedPressable>
+            </View>
+          </>
+        ) : null}
+      </AnimatedSheetModal>
+      <ConfirmationDialog
+        cancelLabel={t('stats.cancel')}
+        confirmLabel={t('stats.delete')}
+        iconName="trash-outline"
+        message={t('stats.confirmDeleteTaskGoalMessage')}
+        onCancel={() => setPendingDeleteTargetTypeId(null)}
+        onConfirm={() => {
+          void handleConfirmDeleteTarget();
+        }}
+        title={t('stats.confirmDeleteTaskGoalTitle')}
+        variant="danger"
+        visible={pendingDeleteTargetTypeId !== null}
+      />
       <DayRecordsPanel
         dayKey={selectedDayKey}
         onClose={handleCloseDayRecords}
@@ -553,6 +1049,91 @@ export default function StatsScreen() {
         visible={selectedDayKey !== null && dayRecordsSheetVisible}
       />
     </SafeAreaView>
+  );
+}
+
+type SwipeTargetRowProps = {
+  colors: ReturnType<typeof useAppTheme>['colors'];
+  onDelete: (id: string) => void;
+  onEdit: (recordType: RecordType) => void;
+  recordType: RecordType;
+  styles: ReturnType<typeof makeStyles>;
+  t: ReturnType<typeof useTranslation>['t'];
+};
+
+function SwipeTargetRow({
+  colors,
+  onDelete,
+  onEdit,
+  recordType,
+  styles,
+  t,
+}: SwipeTargetRowProps) {
+  const typeColor = getRecordTypeColor(recordType);
+
+  const renderDeleteAction = (
+    _progress: unknown,
+    _translation: unknown,
+    swipeable: SwipeableMethods,
+  ) => (
+    <View style={styles.targetDeleteAction}>
+      <GesturePressable
+        accessibilityLabel={t('stats.deleteTaskGoal')}
+        accessibilityRole="button"
+        cancelable={false}
+        onPress={() => {
+          swipeable.reset();
+          onDelete(recordType.id);
+        }}
+        style={({ pressed }) => [
+          styles.targetDeleteActionButton,
+          pressed && styles.targetDeleteActionButtonPressed,
+        ]}
+      >
+        <Ionicons color={colors.surface} name="trash-outline" size={21} />
+        <Text style={styles.targetDeleteText}>{t('stats.delete')}</Text>
+      </GesturePressable>
+    </View>
+  );
+
+  return (
+    <View style={styles.targetSwipeShadow}>
+      <ReanimatedSwipeable
+        containerStyle={styles.targetSwipeShell}
+        dragOffsetFromLeftEdge={10}
+        dragOffsetFromRightEdge={10}
+        friction={1.15}
+        overshootRight={false}
+        renderRightActions={renderDeleteAction}
+        rightThreshold={targetDeleteActionWidth / 2}
+      >
+        <View style={styles.targetRow}>
+          <View style={[styles.targetIcon, { backgroundColor: getRecordTypeSoftColor(typeColor) }]}>
+            <Ionicons color={typeColor} name={getRecordTypeIconName(recordType)} size={22} />
+          </View>
+          <View style={styles.targetMain}>
+            <Text numberOfLines={1} style={styles.targetName}>
+              {getRecordTypeName(recordType, t)}
+            </Text>
+            <Text style={styles.targetMeta}>
+              {t('stats.targetMinutesValue', {
+                minutes: recordType.target_minutes,
+              })}
+            </Text>
+          </View>
+          <AnimatedPressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => onEdit(recordType)}
+            pressedScale={0.92}
+            pressedTranslateX={4}
+            style={styles.targetEditButton}
+          >
+            <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={20} />
+          </AnimatedPressable>
+        </View>
+      </ReanimatedSwipeable>
+    </View>
   );
 }
 
@@ -709,6 +1290,92 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     borderColor: colors.border,
     ...shadow,
   },
+  typeStatsCard: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow,
+  },
+  typeStatsHeader: {
+    minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  typeStatsTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  typeStatsList: {
+    gap: 1,
+  },
+  typeStatsRow: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceElevated,
+  },
+  typeStatsIcon: {
+    width: 18,
+    height: 18,
+    lineHeight: 18,
+    flexShrink: 0,
+  },
+  typeStatsName: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  typeStatsValue: {
+    width: 58,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 18,
+    textAlign: 'right',
+    flexShrink: 0,
+  },
+  typeStatsVisual: {
+    width: 104,
+    flexShrink: 0,
+  },
+  typeStatsTrack: {
+    height: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceAlt,
+  },
+  typeStatsProgress: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  typeStatsEmpty: {
+    minHeight: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    backgroundColor: colors.surfaceAlt,
+  },
+  typeStatsEmptyText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   calendarGrid: {
     gap: spacing.xs,
   },
@@ -741,6 +1408,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   dayCellSelected: {
     borderColor: colors.primary,
     backgroundColor: colors.primarySoft,
+  },
+  selectedTodayCell: {
+    backgroundColor: colors.danger,
+    borderColor: colors.text,
+    shadowColor: colors.text,
+    shadowOpacity: 0.24,
   },
   emptyCell: {
     backgroundColor: 'transparent',
@@ -794,6 +1467,242 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  targetScroll: {
+    maxHeight: 420,
+  },
+  targetList: {
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  targetSwipeShadow: {
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    ...shadow,
+  },
+  targetSwipeShell: {
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceElevated,
+  },
+  targetRow: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  targetDeleteAction: {
+    width: targetDeleteActionWidth,
+    paddingLeft: spacing.sm,
+  },
+  targetDeleteActionButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    borderRadius: radius.md,
+    backgroundColor: colors.danger,
+  },
+  targetDeleteActionButtonPressed: {
+    backgroundColor: colors.dangerDark,
+  },
+  targetDeleteText: {
+    color: colors.surface,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  targetIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  targetMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  targetName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  targetMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  targetError: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  targetEditButton: {
+    width: 30,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  targetInputShell: {
+    width: 78,
+    height: 42,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  targetInputError: {
+    borderColor: colors.danger,
+  },
+  targetInput: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 0,
+    minHeight: 40,
+  },
+  emptyTargetBox: {
+    minHeight: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+    borderStyle: 'dashed',
+  },
+  emptyTargetText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  addTargetButton: {
+    minHeight: 50,
+    marginTop: spacing.md,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+  },
+  addTargetText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  lockedTargetTypeRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  targetEditorBlock: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  targetEditorInputRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  targetEditorInputMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  targetEditorInputIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF4FF',
+  },
+  targetEditorLabel: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  targetEditorInput: {
+    minWidth: 76,
+    maxWidth: 112,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+    textAlign: 'right',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 0,
+    minHeight: 40,
+  },
+  targetEditorActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+  targetCancelButtonContainer: {
+    flex: 1,
+  },
+  targetCancelButton: {
+    height: 48,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  targetCancelText: {
+    color: colors.textSoft,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  targetSaveButtonContainer: {
+    flex: 1.5,
+  },
+  targetSaveButton: {
+    height: 48,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  targetSaveButtonDisabled: {
+    opacity: 0.5,
+  },
+  targetSaveText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: '900',
   },
   filterTypeCard: {
     width: 96,
