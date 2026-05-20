@@ -706,7 +706,7 @@ export default function SettingsScreen() {
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.timeTile]}>
-                  <Ionicons color={colors.accent} name="time-outline" size={25} />
+                  <Ionicons color={colors.primary} name="time-outline" size={25} />
                 </View>
                 <Text style={styles.rowLabel}>{t('settings.dayStart')}</Text>
                 <Text
@@ -736,8 +736,8 @@ export default function SettingsScreen() {
                     valueMinutes={pendingStartMinutes}
                   />
                   <View style={styles.tipRow}>
-                    <Ionicons color={colors.accent} name="bulb-outline" size={17} />
-                    <Text style={[styles.tipText, { color: colors.accent }]}>
+                    <Ionicons color={colors.primary} name="bulb-outline" size={17} />
+                    <Text style={[styles.tipText, { color: colors.primary }]}>
                       {t('settings.startTimeDescription')}
                     </Text>
                   </View>
@@ -758,12 +758,12 @@ export default function SettingsScreen() {
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.separateTile]}>
-                  <Ionicons color={colors.danger} name="stopwatch-outline" size={25} />
+                  <Ionicons color={colors.primary} name="stopwatch-outline" size={25} />
                 </View>
                 <Text
                   style={[
                     styles.rowLabel,
-                    expandedSection === 'separateRecord' && { color: colors.danger },
+                    expandedSection === 'separateRecord' && { color: colors.primary },
                   ]}
                 >
                   {t('settings.separateRecord')}
@@ -771,20 +771,20 @@ export default function SettingsScreen() {
                 <Text
                   style={[
                     styles.rowValue,
-                    expandedSection === 'separateRecord' && { color: colors.danger },
+                    expandedSection === 'separateRecord' && { color: colors.primary },
                   ]}
                 >
                   {separateRecordEnabled ? t('settings.yes') : t('settings.no')}
                 </Text>
                 {renderChevron(
                   'separateRecord',
-                  expandedSection === 'separateRecord' ? colors.danger : colors.mutedSubtle,
+                  expandedSection === 'separateRecord' ? colors.primary : colors.mutedSubtle,
                 )}
               </AnimatedPressable>
 
               {expandedSection === 'separateRecord' ? (
                 <View style={styles.optionBody}>
-                  <Text style={[styles.optionTitle, { color: colors.danger }]}>
+                  <Text style={[styles.optionTitle, { color: colors.primary }]}>
                     {t('settings.chooseSeparateRecord')}
                   </Text>
                   {[
@@ -825,8 +825,8 @@ export default function SettingsScreen() {
                     );
                   })}
                   <View style={styles.tipRow}>
-                    <Ionicons color={colors.danger} name="information-circle-outline" size={17} />
-                    <Text style={[styles.tipText, { color: colors.danger }]}>
+                    <Ionicons color={colors.primary} name="information-circle-outline" size={17} />
+                    <Text style={[styles.tipText, { color: colors.primary }]}>
                       {t('settings.separateRecordDescription')}
                     </Text>
                   </View>
@@ -1197,26 +1197,26 @@ export default function SettingsScreen() {
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.unitTile]}>
-                  <Ionicons color={colors.info} name="pencil" size={24} />
+                  <Ionicons color={colors.primary} name="pencil" size={24} />
                 </View>
                 <Text style={styles.rowLabel}>{t('settings.recordUnit')}</Text>
                 <Text
                   style={[
                     styles.rowValue,
-                    expandedSection === 'recordUnit' && { color: colors.info },
+                    expandedSection === 'recordUnit' && { color: colors.primary },
                   ]}
                 >
                   {recordUnit === 'minutes' ? t('settings.minutes') : t('settings.hours')}
                 </Text>
                 {renderChevron(
                   'recordUnit',
-                  expandedSection === 'recordUnit' ? colors.info : colors.mutedSubtle,
+                  expandedSection === 'recordUnit' ? colors.primary : colors.mutedSubtle,
                 )}
               </AnimatedPressable>
 
               {expandedSection === 'recordUnit' ? (
                 <View style={styles.optionBody}>
-                  <Text style={[styles.optionTitle, { color: colors.info }]}>
+                  <Text style={[styles.optionTitle, { color: colors.primary }]}>
                     {t('settings.chooseRecordUnit')}
                   </Text>
                   {[
@@ -1257,8 +1257,8 @@ export default function SettingsScreen() {
                     );
                   })}
                   <View style={styles.tipRow}>
-                    <Ionicons color={colors.info} name="information-circle-outline" size={17} />
-                    <Text style={[styles.tipText, { color: colors.info }]}>
+                    <Ionicons color={colors.primary} name="information-circle-outline" size={17} />
+                    <Text style={[styles.tipText, { color: colors.primary }]}>
                       {t('settings.recordUnitDescription')}
                     </Text>
                   </View>
@@ -1279,12 +1279,12 @@ export default function SettingsScreen() {
                 style={styles.settingRow}
               >
                 <View style={[styles.iconTile, styles.listTile]}>
-                  <Ionicons color={colors.highlight} name="list" size={25} />
+                  <Ionicons color={colors.primary} name="list" size={25} />
                 </View>
                 <Text
                   style={[
                     styles.rowLabel,
-                    expandedSection === 'recentRecords' && { color: colors.highlight },
+                    expandedSection === 'recentRecords' && { color: colors.primary },
                   ]}
                 >
                   {t('settings.recentRecords')}
@@ -1292,20 +1292,20 @@ export default function SettingsScreen() {
                 <Text
                   style={[
                     styles.rowValue,
-                    expandedSection === 'recentRecords' && { color: colors.highlight },
+                    expandedSection === 'recentRecords' && { color: colors.primary },
                   ]}
                 >
                   {t('settings.recordsCount', { count: Number(recentRecordLimit) })}
                 </Text>
                 {renderChevron(
                   'recentRecords',
-                  expandedSection === 'recentRecords' ? colors.highlight : colors.mutedSubtle,
+                  expandedSection === 'recentRecords' ? colors.primary : colors.mutedSubtle,
                 )}
               </AnimatedPressable>
 
               {expandedSection === 'recentRecords' ? (
                 <View style={styles.optionBody}>
-                  <Text style={[styles.optionTitle, { color: colors.highlight }]}>
+                  <Text style={[styles.optionTitle, { color: colors.primary }]}>
                     {t('settings.chooseRecentRecords')}
                   </Text>
                   {recentRecordOptions.map((option) => {
@@ -1334,8 +1334,8 @@ export default function SettingsScreen() {
                     );
                   })}
                   <View style={styles.tipRow}>
-                    <Ionicons color={colors.highlight} name="information-circle-outline" size={17} />
-                    <Text style={[styles.tipText, { color: colors.highlight }]}>
+                    <Ionicons color={colors.primary} name="information-circle-outline" size={17} />
+                    <Text style={[styles.tipText, { color: colors.primary }]}>
                       {t('settings.recentRecordsDescription')}
                     </Text>
                   </View>
@@ -1481,13 +1481,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: cardVariants.settingsTime.tileBackground,
     },
     unitTile: {
-      backgroundColor: colors.infoSoft,
+      backgroundColor: colors.primarySoft,
     },
     listTile: {
       backgroundColor: cardVariants.settingsList.tileBackground,
     },
     separateTile: {
-      backgroundColor: colors.dangerSoft,
+      backgroundColor: colors.primarySoft,
     },
     typeTile: {
       backgroundColor: colors.primarySoft,
@@ -1545,16 +1545,16 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       backgroundColor: colors.surface,
     },
     radioUnitActive: {
-      backgroundColor: colors.info,
-      borderColor: colors.info,
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
     },
     radioListActive: {
-      backgroundColor: colors.highlight,
-      borderColor: colors.highlight,
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
     },
     radioSeparateActive: {
-      backgroundColor: colors.danger,
-      borderColor: colors.danger,
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
     },
     radioTypeActive: {
       backgroundColor: colors.primary,
@@ -1596,7 +1596,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       fontWeight: '800',
     },
     limitTextActive: {
-      color: colors.highlight,
+      color: colors.primary,
       fontWeight: '900',
     },
     typeChoiceActive: {

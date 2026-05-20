@@ -2,13 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   type LayoutChangeEvent,
   ScrollView,
   StyleSheet,
+  type StyleProp,
   Text,
+  type ViewStyle,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -45,7 +47,6 @@ import {
   formatWeekdayLabel,
   type RecordUnit,
 } from '@/utils/date';
-import { getRecordMinutesColor } from '@/utils/recordColor';
 import {
   formatRecordRange,
   formatRecordRangeParts,
@@ -57,6 +58,7 @@ import { getRecordIconName, getRecordTypeIconName } from '@/utils/recordTypeIcon
 import { getDayRecordTypeName, getRecordTypeName } from '@/utils/recordTypeName';
 
 const recordTypeGridBaseColumns = 3;
+const dailyGoalMinutes = 480;
 const recordTypeGridBreakpoints = [
   { minWidth: 1024, columns: 10 },
   { minWidth: 768, columns: 8 },
@@ -96,6 +98,35 @@ function getClockHandsFromRecord(record: DayRecord | null) {
     hour: hours * 30 + minutes * 0.5,
     minute: minutes * 6 + seconds * 0.1,
   };
+}
+
+function RecentRecordTypeIcon({
+  blockStyle,
+  circleStyle,
+  color,
+  iconName,
+}: {
+  blockStyle: StyleProp<ViewStyle>;
+  circleStyle: StyleProp<ViewStyle>;
+  color: string;
+  iconName: ComponentProps<typeof Ionicons>['name'];
+}) {
+  const [iconSize, setIconSize] = useState(28);
+
+  const handleLayout = (event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    const nextIconSize = Math.max(22, Math.min(Math.round(height * 0.54), 40));
+
+    setIconSize((current) => (current === nextIconSize ? current : nextIconSize));
+  };
+
+  return (
+    <View onLayout={handleLayout} style={blockStyle}>
+      <View style={circleStyle}>
+        <Ionicons color={color} name={iconName} size={iconSize} />
+      </View>
+    </View>
+  );
 }
 
 export default function HomeScreen() {
@@ -217,9 +248,29 @@ export default function HomeScreen() {
         .slice(0, recentRecordLimit),
     [currentDayKey, recentRecordLimit, records, separateRecordEnabled],
   );
+  const groupedPreviousRecords = useMemo(
+    () =>
+      previousRecords.reduce<{ dayKey: string; records: DayRecord[] }[]>((groups, record) => {
+        const lastGroup = groups[groups.length - 1];
+
+        if (lastGroup?.dayKey === record.day_key) {
+          lastGroup.records.push(record);
+          return groups;
+        }
+
+        groups.push({ dayKey: record.day_key, records: [record] });
+        return groups;
+      }, []),
+    [previousRecords],
+  );
   const todayTotalMinutes = useMemo(
     () => todayRecords.reduce((sum, record) => sum + record.minutes_since_start, 0),
     [todayRecords],
+  );
+  const todayProgress = Math.min(
+    1,
+    (separateRecordEnabled ? todayRecord?.minutes_since_start ?? 0 : todayTotalMinutes) /
+      dailyGoalMinutes,
   );
   const todayDisplayRangeParts = separateRecordEnabled
     ? todayRecord
@@ -375,6 +426,9 @@ export default function HomeScreen() {
   const activeSeparateRecordType = activeSeparateRecordTypeId
     ? recordTypes.find((recordType) => recordType.id === activeSeparateRecordTypeId)
     : null;
+  const activeSeparateRecordTypeName = activeSeparateRecordType
+    ? getRecordTypeName(activeSeparateRecordType, t)
+    : null;
   const defaultRecordType = recordTypes.find((recordType) => recordType.id === defaultRecordTypeId);
   const defaultRecordTypeColor = defaultRecordType ? getRecordTypeColor(defaultRecordType) : colors.primary;
   const recordButtonBackgroundColor = separateRecordEnabled
@@ -387,7 +441,7 @@ export default function HomeScreen() {
       ? t('home.updateRecord')
       : t('home.createRecord')
     : activeSeparateRecordStartedAt
-      ? t('home.endRecord')
+      ? `${activeSeparateRecordTypeName ?? t('home.endRecord')} · ${t('home.recordingStatus')}`
       : t('home.startRecord');
   const recordButtonIconName =
     !separateRecordEnabled && activeSeparateRecordStartedAt && activeSeparateRecordType
@@ -445,7 +499,7 @@ export default function HomeScreen() {
           ]}
         >
           <LinearGradient
-            colors={['#FFE7B4', '#FFD991', '#FF895F']}
+            colors={['#35A7FF', '#635BFF', '#7C3AED']}
             end={{ x: 0.05, y: 1 }}
             start={{ x: 1, y: 0 }}
             style={styles.todayPanel}
@@ -477,17 +531,41 @@ export default function HomeScreen() {
                         <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
                         <Text style={styles.todayTimeSeparator}>-</Text>
                         <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
-                        <Ionicons color={colors.textSoft} name="create" size={17} />
+                        <Ionicons color={colors.surface} name="create" size={17} />
                       </View>
                     </View>
                   ) : null}
                 </>
               ) : (
                 <>
+                  <Text style={styles.todayRecordTitle}>{t('home.todayRecordTitle')}</Text>
                   <Text style={styles.notRecorded}>{t('home.notRecorded')}</Text>
                   <Text style={styles.meta}> </Text>
                 </>
               )}
+              {!isLoading ? (
+                <View style={styles.todayProgressBlock}>
+                  <View style={styles.todayProgressMeta}>
+                    <View style={styles.todayGoalRow}>
+                      <Ionicons color={colors.surface} name="flag-outline" size={16} />
+                      <Text style={styles.todayGoalText}>
+                        {t('home.dailyGoal', { minutes: dailyGoalMinutes })}
+                      </Text>
+                    </View>
+                    <Text style={styles.todayProgressText}>
+                      {Math.round(todayProgress * 100)}%
+                    </Text>
+                  </View>
+                  <View style={styles.todayProgressTrack}>
+                    <View
+                      style={[
+                        styles.todayProgressFill,
+                        { width: `${Math.max(2, todayProgress * 100)}%` },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ) : null}
             </View>
             <View style={styles.clock}>
               <View style={[styles.clockTick, styles.clockTickTop]} />
@@ -530,66 +608,66 @@ export default function HomeScreen() {
               <Text style={styles.emptyText}>{t('home.noHistory')}</Text>
             </View>
           ) : (
-            previousRecords.map((record) => (
-              <View key={record.id} style={styles.recordRow}>
-                {!separateRecordEnabled ? (
-                  <View style={styles.recordTypeIconBlock}>
-                    <Ionicons
-                      color={getRecordColor(record)}
-                      name={getRecordIconName(record)}
-                      size={24}
-                      style={styles.recordTypeIconCircle}
-                    />
-                    <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordTypeIconText}>
-                      {getDayRecordTypeName(record, t)}
-                    </Text>
-                  </View>
-                ) : null}
-                <View style={styles.recordMain}>
-                  <View style={styles.recordDateRow}>
-                    <Text style={styles.recordDate}>{formatDayLabel(record.day_key)}</Text>
-                    <Text style={styles.recordWeekday}>{formatWeekdayLabel(record.day_key)}</Text>
-                  </View>
-                  <View style={styles.recordMetaRow}>
-                    <Text style={styles.recordTime}>{formatRecordRange(record, startTimeMinutes)}</Text>
-                  </View>
+            groupedPreviousRecords.map((group) => (
+              <View key={group.dayKey} style={styles.recordGroup}>
+                <View style={styles.recordGroupHeader}>
+                  <View style={styles.recordGroupDot} />
+                  <Text style={styles.recordGroupTitle}>
+                    {group.dayKey === currentDayKey ? t('home.today') : formatDayLabel(group.dayKey)}
+                  </Text>
+                  <Text style={styles.recordGroupDate}>{formatWeekdayLabel(group.dayKey)}</Text>
                 </View>
-                <View style={styles.recordValueRow}>
-                  {recordUnit === 'minutes' ? (
-                    <>
-                      <Text
-                        style={[
-                          styles.recordMinutes,
-                          { color: getRecordMinutesColor(record.minutes_since_start) },
-                        ]}
+                <View style={styles.recordGroupRows}>
+                  {group.records.map((record) => {
+                    const recordColor = getRecordColor(record);
+
+                    return (
+                      <AnimatedPressable
+                        accessibilityLabel={t('stats.dayRecordTitle', {
+                          day: formatDayLabel(record.day_key),
+                        })}
+                        accessibilityRole="button"
+                        key={record.id}
+                        onPress={() => handleOpenDayRecords(record.day_key)}
+                        pressedScale={0.985}
+                        style={styles.recordRow}
                       >
-                        {record.minutes_since_start}
-                      </Text>
-                      <Text style={styles.recordUnitText}>{t('date.minutesFullUnit')}</Text>
-                    </>
-                  ) : (
-                    <Text
-                      style={[
-                        styles.recordMinutes,
-                        { color: getRecordMinutesColor(record.minutes_since_start) },
-                      ]}
-                    >
-                      {formatDuration(record.minutes_since_start, recordUnit)}
-                    </Text>
-                  )}
-                  <AnimatedPressable
-                    accessibilityLabel={t('stats.dayRecordTitle', {
-                      day: formatDayLabel(record.day_key),
-                    })}
-                    accessibilityRole="button"
-                    hitSlop={10}
-                    onPress={() => handleOpenDayRecords(record.day_key)}
-                    pressedScale={0.92}
-                    pressedTranslateX={4}
-                    style={styles.recordArrowButton}
-                  >
-                    <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
-                  </AnimatedPressable>
+                        {!separateRecordEnabled ? (
+                          <RecentRecordTypeIcon
+                            blockStyle={styles.recordTypeIconBlock}
+                            circleStyle={styles.recordTypeIconCircle}
+                            color={recordColor}
+                            iconName={getRecordIconName(record)}
+                          />
+                        ) : null}
+                        <View style={styles.recordMain}>
+                          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordTypeLabel}>
+                            {getDayRecordTypeName(record, t)}
+                          </Text>
+                          <Text style={styles.recordTime}>
+                            {formatRecordRange(record, startTimeMinutes)}
+                          </Text>
+                        </View>
+                        <View style={styles.recordValueRow}>
+                          {recordUnit === 'minutes' ? (
+                            <>
+                              <Text style={[styles.recordMinutes, { color: recordColor }]}>
+                                {record.minutes_since_start}
+                              </Text>
+                              <Text style={styles.recordUnitText}>{t('date.minutesFullUnit')}</Text>
+                            </>
+                          ) : (
+                            <Text style={[styles.recordMinutes, { color: recordColor }]}>
+                              {formatDuration(record.minutes_since_start, recordUnit)}
+                            </Text>
+                          )}
+                          <View style={styles.recordArrowButton}>
+                            <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
+                          </View>
+                        </View>
+                      </AnimatedPressable>
+                    );
+                  })}
                 </View>
               </View>
             ))
@@ -603,16 +681,13 @@ export default function HomeScreen() {
             animatedStyle={recordButtonAnimatedStyle}
             backgroundColor={recordButtonBackgroundColor}
             cancelLabel={t('home.cancelRecord')}
+            containerStyle={styles.recordButtonContainer}
             disabled={isRecording || isHidingRecordButton || !shouldShowRecordButtonArea}
+            dragCancelLabel={t('home.dragCancelRecord')}
+            fullWidth
             hasRecord={separateRecordEnabled && Boolean(todayRecord)}
+            holdCancelLabel={t('home.holdCancelRecord')}
             iconName={recordButtonIconName}
-            iconLabel={
-              !separateRecordEnabled && activeSeparateRecordStartedAt
-                ? activeSeparateRecordType
-                  ? getRecordTypeName(activeSeparateRecordType, t)
-                  : undefined
-                : undefined
-            }
             isRecording={isRecording}
             label={recordButtonLabel}
             onCancelRecording={handleCancelActiveRecord}
@@ -732,7 +807,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   content: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: 108,
+    paddingBottom: 140,
   },
   header: {
     minHeight: 48,
@@ -783,9 +858,9 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     overflow: 'hidden',
   },
   todayPanel: {
-    minHeight: 144,
+    minHeight: 178,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -812,10 +887,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   todayRecordTitle: {
     alignSelf: 'flex-start',
-    marginTop: spacing.sm,
-    color: colors.text,
+    color: colors.surface,
     fontSize: 15,
     fontWeight: '900',
+    textShadowColor: 'rgba(18,24,54,0.22)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   loadingIndicator: {
     alignSelf: 'flex-start',
@@ -828,34 +905,34 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     flexShrink: 0,
   },
   minutesNumber: {
-    color: colors.text,
+    color: colors.surface,
     fontSize: 52,
     fontWeight: '900',
     letterSpacing: 0,
     lineHeight: 58,
   },
   minutesUnit: {
-    color: colors.text,
+    color: colors.surface,
     fontSize: 17,
     fontWeight: '900',
     marginLeft: spacing.sm,
     marginBottom: 6,
   },
   minutesText: {
-    color: colors.text,
+    color: colors.surface,
     fontSize: 34,
     fontWeight: '900',
     lineHeight: 40,
     marginTop: spacing.xs,
   },
   notRecorded: {
-    color: colors.text,
+    color: colors.surface,
     fontSize: 28,
     fontWeight: '900',
     marginTop: spacing.sm,
   },
   meta: {
-    color: colors.textSoft,
+    color: 'rgba(255,255,255,0.82)',
     fontSize: 14,
     fontWeight: '700',
     marginTop: spacing.sm,
@@ -875,12 +952,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.xs,
   },
   todayTimeField: {
-    color: colors.text,
+    color: colors.surface,
     fontSize: 15,
     fontWeight: '800',
   },
   todayTimeSeparator: {
-    color: colors.text,
+    color: colors.surface,
     fontSize: 15,
     fontWeight: '800',
   },
@@ -894,13 +971,54 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     fontSize: 12,
     fontWeight: '900',
   },
+  todayProgressBlock: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.24)',
+  },
+  todayProgressMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  todayGoalRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  todayGoalText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  todayProgressText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  todayProgressTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+    overflow: 'hidden',
+  },
+  todayProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+  },
   clock: {
-    width: 94,
-    height: 94,
-    borderRadius: 47,
-    backgroundColor: 'rgba(255,255,255,0.84)',
-    borderWidth: 6,
-    borderColor: 'rgba(255,255,255,0.54)',
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 9,
+    borderColor: 'rgba(238,240,255,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.shadow,
@@ -914,7 +1032,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     width: 3,
     height: 7,
     borderRadius: 2,
-    backgroundColor: '#FF8B40',
+    backgroundColor: '#8B8CFF',
   },
   clockTickTop: {
     top: 11,
@@ -941,23 +1059,25 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   clockHandLong: {
     width: 5,
-    height: 35,
+    height: 39,
     borderRadius: 2.5,
-    backgroundColor: '#FF7B25',
-    transform: [{ translateY: -17.5 }],
+    backgroundColor: colors.primary,
+    transform: [{ translateY: -19.5 }],
   },
   clockHandShort: {
     width: 5,
-    height: 23,
+    height: 28,
     borderRadius: 2.5,
-    backgroundColor: '#FF7B25',
-    transform: [{ translateY: -11.5 }],
+    backgroundColor: colors.highlight,
+    transform: [{ translateY: -14 }],
   },
   clockCenter: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#FF7B25',
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: colors.primary,
+    borderWidth: 3,
+    borderColor: '#C7D0FF',
   },
   sectionHeader: {
     marginBottom: spacing.sm,
@@ -967,10 +1087,39 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     ...typography.sectionTitle,
   },
   recordList: {
+    gap: spacing.md,
+  },
+  recordGroup: {
+    gap: spacing.sm,
+  },
+  recordGroupHeader: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  recordGroupDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  recordGroupTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  recordGroupDate: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  recordGroupRows: {
     gap: spacing.sm,
   },
   recordRow: {
-    minHeight: 58,
+    minHeight: 72,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
@@ -984,34 +1133,26 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   recordTypeIconBlock: {
     alignSelf: 'stretch',
-    width: 64,
+    aspectRatio: 1,
     marginLeft: -spacing.md,
     marginVertical: -spacing.sm,
     borderTopLeftRadius: radius.md - 1,
     borderBottomLeftRadius: radius.md - 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 0,
-    paddingHorizontal: 4,
+    overflow: 'hidden',
     backgroundColor: colors.surface,
     flexShrink: 0,
   },
   recordTypeIconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.surfaceElevated,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    overflow: 'hidden',
   },
-  recordTypeIconText: {
-    maxWidth: '100%',
-    color: colors.textSoft,
-    fontSize: 10,
-    fontWeight: '900',
-    lineHeight: 10,
-    marginTop: -7,
+  recordTypeLabel: {
+    flexShrink: 1,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
   },
   recordDateRow: {
     flexDirection: 'row',
@@ -1092,10 +1233,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   actionArea: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: componentSizes.bottomActionOffset,
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: componentSizes.tabBarHeight + spacing.sm,
     alignItems: 'center',
+  },
+  recordButtonContainer: {
+    width: '100%',
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,

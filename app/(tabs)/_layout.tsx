@@ -121,7 +121,7 @@ export default function TabLayout() {
           paddingBottom: 7,
           paddingTop: 6,
           borderTopWidth: 1,
-          shadowColor: isDark ? '#000000' : '#10231B',
+          shadowColor: isDark ? '#000000' : colors.primaryDark,
           shadowOffset: { width: 0, height: -8 },
           shadowOpacity: isDark ? 0.2 : 0.08,
           shadowRadius: 22,

@@ -309,12 +309,12 @@ export default function StatsScreen() {
             pressedTranslateX={4}
             style={styles.monthButton}
           >
-            <Ionicons color={colors.highlight} name="chevron-forward" size={23} />
+            <Ionicons color={colors.primary} name="chevron-forward" size={23} />
           </AnimatedPressable>
         </View>
 
         <LinearGradient
-          colors={['#14BDB4', '#5FD9CD', '#BEEFE6']}
+          colors={['#35A7FF', '#635BFF', '#7C3AED']}
           end={{ x: 1, y: 0 }}
           start={{ x: 0, y: 1 }}
           style={styles.summary}
@@ -739,7 +739,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     elevation: 3,
   },
   dayCellSelected: {
-    borderColor: colors.highlight,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
   emptyCell: {
     backgroundColor: 'transparent',
