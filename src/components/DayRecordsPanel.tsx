@@ -135,7 +135,6 @@ export function DayRecordsPanel({
   const [recordTypes, setRecordTypes] = useState<RecordType[]>([]);
   const [recordUnit, setRecordUnit] = useState<RecordUnit>('minutes');
   const [startTimeMinutes, setStartTimeMinutes] = useState(0);
-  const [defaultRecordTypeId, setDefaultRecordTypeId] = useState('work');
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [recordEditorVisible, setRecordEditorVisible] = useState(false);
   const [editorTypeGridWidth, setEditorTypeGridWidth] = useState(0);
@@ -184,7 +183,6 @@ export function DayRecordsPanel({
 
     setRecordUnit(settings.recordUnit);
     setStartTimeMinutes(settings.startTimeMinutes);
-    setDefaultRecordTypeId(settings.defaultRecordTypeId);
     setRecordTypes(nextRecordTypes);
   }, [db]);
 
@@ -260,13 +258,16 @@ export function DayRecordsPanel({
     await refreshAfterChange();
   };
 
-  const handleOpenCreateRecord = () => {
+  const handleOpenCreateRecord = async () => {
+    const settings = await readRecordSettings(db);
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    setStartTimeMinutes(settings.startTimeMinutes);
+    setRecordUnit(settings.recordUnit);
     setEditingRecordId(null);
-    setDraftStartTime(formatTimeInput(startTimeMinutes));
+    setDraftStartTime(formatTimeInput(settings.startTimeMinutes));
     setDraftEndTime(formatTimeInput(currentMinutes));
-    setDraftRecordTypeId(defaultRecordTypeId);
+    setDraftRecordTypeId(settings.defaultRecordTypeId);
     setExpandedEditorSection(null);
     setRecordEditorVisible(true);
   };
@@ -479,7 +480,9 @@ export function DayRecordsPanel({
           <>
             <AnimatedPressable
               accessibilityRole="button"
-              onPress={handleOpenCreateRecord}
+              onPress={() => {
+                void handleOpenCreateRecord();
+              }}
               pressedScale={0.96}
               pressedTranslateY={1}
               style={styles.createRecordButton}

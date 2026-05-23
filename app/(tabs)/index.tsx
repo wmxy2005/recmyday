@@ -714,14 +714,16 @@ export default function HomeScreen() {
                   pressedScale={0.985}
                   style={styles.recordRow}
                 >
-                  <RecentRecordTypeIcon
-                    backgroundColor={getRecordTypeSoftColor(recordColor)}
-                    blockStyle={styles.recordTypeIconBlock}
-                    circleStyle={styles.recordTypeIconCircle}
-                    color={recordColor}
-                    iconName={getRecordIconName(record)}
-                  />
-                  <View style={styles.recordMain}>
+                  {!separateRecordEnabled ? (
+                    <RecentRecordTypeIcon
+                      backgroundColor={getRecordTypeSoftColor(recordColor)}
+                      blockStyle={styles.recordTypeIconBlock}
+                      circleStyle={styles.recordTypeIconCircle}
+                      color={recordColor}
+                      iconName={getRecordIconName(record)}
+                    />
+                  ) : null}
+                  <View style={[styles.recordMain, separateRecordEnabled && styles.recordMainNoIcon]}>
                     <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordTypeLabel}>
                       {getDayRecordTypeName(record, t)}
                     </Text>
@@ -1091,7 +1093,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   todayProgressInfo: {
     flex: 1,
-    minWidth: 0,
+    minWidth: 60,
     maxWidth: 88,
     height: 20,
     justifyContent: 'center',
@@ -1114,13 +1116,13 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     color: colors.muted,
     fontSize: 12,
     fontWeight: '900',
-    width: 108,
+    width: 102,
     textAlign: 'right',
     flexShrink: 0,
   },
   todayProgressVisual: {
     flex: 1.2,
-    minWidth: 110,
+    minWidth: 102,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
@@ -1302,9 +1304,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   recordMain: {
     width: 112,
-    minWidth: 0,
+    minWidth: 82,
     marginLeft: spacing.xs,
     flexShrink: 1,
+  },
+  recordMainNoIcon: {
+    marginLeft: 0,
   },
   recordDate: {
     color: colors.text,
@@ -1328,7 +1333,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   recordDateCenter: {
     flex: 1,
-    minWidth: 82,
+    minWidth: 80,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
