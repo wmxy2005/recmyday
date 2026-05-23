@@ -5,16 +5,16 @@ import { builtInRecordTypeColors, getRecordTypeSoftColor } from '@/utils/recordT
 describe('recordTypeColor', () => {
   it('uses the theme-aligned built-in record type palette', () => {
     expect(builtInRecordTypeColors).toEqual({
-      work: '#4F7CFF',
+      work: '#417FF5',
       study: '#8B5CF6',
-      exercise: '#12B8A6',
-      rest: '#F2A53A',
-      other: '#F05F93',
+      exercise: '#16B99F',
+      rest: '#F5A623',
+      other: '#F4604A',
     });
   });
 
   it('creates a soft rgba color from a record type color', () => {
-    expect(getRecordTypeSoftColor('#635BFF')).toBe('rgba(99,91,255,0.14)');
+    expect(getRecordTypeSoftColor('#417FF5')).toBe('rgba(65,127,245,0.14)');
   });
 
   it('supports custom alpha values', () => {
@@ -22,6 +22,6 @@ describe('recordTypeColor', () => {
   });
 
   it('falls back before creating a soft rgba color', () => {
-    expect(getRecordTypeSoftColor('#000000')).toBe('rgba(99,91,255,0.14)');
+    expect(getRecordTypeSoftColor('#000000')).toBe('rgba(65,127,245,0.14)');
   });
 });

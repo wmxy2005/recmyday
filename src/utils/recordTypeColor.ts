@@ -2,18 +2,18 @@ import type { DayRecord, RecordType } from '@/data/database';
 
 export type RecordTypeColor = string;
 
-export const fallbackRecordTypeColor = '#635BFF';
+export const fallbackRecordTypeColor = '#417FF5';
 
 export const builtInRecordTypeColors: Record<string, RecordTypeColor> = {
-  work: '#4F7CFF',
+  work: '#417FF5',
   study: '#8B5CF6',
-  exercise: '#12B8A6',
-  rest: '#F2A53A',
-  other: '#F05F93',
+  exercise: '#16B99F',
+  rest: '#F5A623',
+  other: '#F4604A',
 };
 
 export const recordTypeColorOptions: RecordTypeColor[] = [
-  '#635BFF',
+  '#417FF5',
   '#7C3AED',
   '#0EA5E9',
   '#14B8A6',

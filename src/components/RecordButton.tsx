@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -89,17 +88,6 @@ function RecordButtonComponent({
         : hasRecord
           ? colors.primaryDark
           : colors.primary);
-  const gradientColors = useMemo<[string, string, string]>(() => {
-    if (tone === 'danger') {
-      return [colors.danger, '#FF6A2E', colors.dangerDark];
-    }
-
-    if (tone === 'success') {
-      return [baseButtonColor, '#35A7FF', colors.primary];
-    }
-
-    return [baseButtonColor, '#635BFF', '#7C3AED'];
-  }, [baseButtonColor, colors.danger, colors.dangerDark, colors.primary, tone]);
 
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelTargetRef = useRef<View>(null);
@@ -413,22 +401,15 @@ function RecordButtonComponent({
               tone === 'danger' && styles.danger,
               tone === 'success' && styles.success,
               hasRecord && styles.recorded,
-              backgroundColor && {
-                backgroundColor,
-                shadowColor: backgroundColor,
+              {
+                backgroundColor: baseButtonColor,
+                shadowColor: baseButtonColor,
               },
               isRecording && styles.disabled,
               buttonShadowAnimatedStyle,
               buttonPressStyle,
             ]}
           >
-            <LinearGradient
-              colors={gradientColors}
-              end={{ x: 0.05, y: 1 }}
-              pointerEvents="none"
-              start={{ x: 1, y: 0 }}
-              style={styles.buttonGradient}
-            />
             <Animated.View pointerEvents="none" style={[styles.cancelOverlay, cancelOverlayAnimatedStyle]} />
             <Animated.View style={[styles.buttonContent, buttonContentAnimatedStyle]}>
               {!isCancelArmed ? (
@@ -487,9 +468,6 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
       shadowRadius: 10,
       elevation: 2,
       overflow: 'hidden',
-    },
-    buttonGradient: {
-      ...StyleSheet.absoluteFillObject,
     },
     cancelOverlay: {
       ...StyleSheet.absoluteFillObject,

@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -269,21 +268,6 @@ export default function HomeScreen() {
         .slice(0, recentRecordLimit),
     [currentDayKey, recentRecordLimit, records, separateRecordEnabled],
   );
-  const groupedPreviousRecords = useMemo(
-    () =>
-      previousRecords.reduce<{ dayKey: string; records: DayRecord[] }[]>((groups, record) => {
-        const lastGroup = groups[groups.length - 1];
-
-        if (lastGroup?.dayKey === record.day_key) {
-          lastGroup.records.push(record);
-          return groups;
-        }
-
-        groups.push({ dayKey: record.day_key, records: [record] });
-        return groups;
-      }, []),
-    [previousRecords],
-  );
   const todayTotalMinutes = useMemo(
     () => todayRecords.reduce((sum, record) => sum + record.minutes_since_start, 0),
     [todayRecords],
@@ -322,6 +306,7 @@ export default function HomeScreen() {
           : getDayRecordTypeName(fallbackRecord, t),
         progress,
         targetMinutes,
+        iconName: recordType ? getRecordTypeIconName(recordType) : getRecordIconName(fallbackRecord),
       };
     });
   }, [monthRecords, recordTypes, t]);
@@ -482,13 +467,6 @@ export default function HomeScreen() {
   const activeSeparateRecordTypeName = activeSeparateRecordType
     ? getRecordTypeName(activeSeparateRecordType, t)
     : null;
-  const defaultRecordType = recordTypes.find((recordType) => recordType.id === defaultRecordTypeId);
-  const defaultRecordTypeColor = defaultRecordType ? getRecordTypeColor(defaultRecordType) : colors.primary;
-  const recordButtonBackgroundColor = separateRecordEnabled
-    ? defaultRecordTypeColor
-    : activeSeparateRecordType
-      ? getRecordTypeColor(activeSeparateRecordType)
-      : defaultRecordTypeColor;
   const recordButtonLabel = separateRecordEnabled
     ? todayRecord
       ? t('home.updateRecord')
@@ -511,6 +489,8 @@ export default function HomeScreen() {
     : activeSeparateRecordStartedAt
       ? 'danger'
       : 'success';
+  const recordButtonBackgroundColor =
+    recordButtonTone === 'danger' ? undefined : colors.primary;
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
@@ -556,12 +536,7 @@ export default function HomeScreen() {
             isTodayPanelSelected && styles.todayPanelSelected,
           ]}
         >
-          <LinearGradient
-            colors={['#35A7FF', '#635BFF', '#7C3AED']}
-            end={{ x: 0.05, y: 1 }}
-            start={{ x: 1, y: 0 }}
-            style={styles.todayPanel}
-          >
+          <View style={styles.todayPanel}>
             <View style={styles.todayPanelTop}>
               <View style={styles.todayCopy}>
                 {isLoading ? (
@@ -594,7 +569,7 @@ export default function HomeScreen() {
                           <Text style={styles.todayTimeField}>{todayDisplayRangeParts.start}</Text>
                           <Text style={styles.todayTimeSeparator}>-</Text>
                           <Text style={styles.todayTimeField}>{todayDisplayRangeParts.end}</Text>
-                          <Ionicons color={colors.surface} name="create" size={17} />
+                          <Ionicons color={colors.surface} name="create" size={20} />
                         </View>
                       </View>
                     ) : null}
@@ -650,56 +625,67 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
-            {!isLoading && todayTaskProgresses.length > 0 ? (
-              <View style={styles.todayProgressBlock}>
-                {todayTaskProgresses.map((item) => {
-                  const progressColor =
-                    item.progress === null ? colors.surface : getRecordProgressColor(item.progress);
+          </View>
+          {!isLoading && todayTaskProgresses.length > 0 ? (
+            <View style={styles.todayProgressBlock}>
+              {todayTaskProgresses.map((item) => {
+                const progressColor =
+                  item.progress === null ? item.color : getRecordProgressColor(item.progress);
 
-                  return (
-                    <View key={item.id} style={styles.todayTaskProgressRow}>
-                      <View style={styles.todayProgressInfo}>
-                        <View style={styles.todayGoalRow}>
-                          <Ionicons color={item.color} name="flag-outline" size={15} />
-                          <Text numberOfLines={1} style={styles.todayGoalText}>
-                            {item.name}
-                          </Text>
-                        </View>
-                        <Text numberOfLines={1} style={styles.todayGoalValue}>
-                          {item.targetMinutes
-                            ? t('home.taskGoal', {
-                                minutes: item.minutes,
-                                target: item.targetMinutes,
-                              })
-                            : t('home.taskMinutes', { minutes: item.minutes })}
+                return (
+                  <View key={item.id} style={styles.todayTaskProgressRow}>
+                    <View style={styles.todayProgressIcon}>
+                      <Ionicons color={item.color} name={item.iconName} size={18} />
+                    </View>
+                    <View style={styles.todayProgressInfo}>
+                      <Text numberOfLines={1} style={styles.todayGoalText}>
+                        {item.name}
+                      </Text>
+                    </View>
+                    <Text numberOfLines={1} style={styles.todayGoalValue}>
+                      {item.targetMinutes
+                        ? t('home.taskGoal', {
+                            minutes: item.minutes,
+                            target: item.targetMinutes,
+                          })
+                        : t('home.taskMinutes', { minutes: item.minutes })}
+                    </Text>
+                    <View style={styles.todayProgressVisual}>
+                      <View
+                        style={[
+                          styles.todayProgressTrack,
+                          item.progress === null && {
+                            backgroundColor: getRecordTypeSoftColor(item.color, 0.12),
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.todayProgressFill,
+                            {
+                              backgroundColor:
+                                item.progress === null
+                                  ? getRecordTypeSoftColor(item.color, 0.18)
+                                  : progressColor,
+                              width:
+                                item.progress === null
+                                  ? '100%'
+                                  : `${Math.max(2, item.progress * 100)}%`,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <View style={styles.todayProgressPercentBox}>
+                        <Text style={styles.todayProgressText}>
+                          {item.progress !== null ? `${Math.round(item.progress * 100)}%` : '-'}
                         </Text>
                       </View>
-                      {item.progress !== null ? (
-                        <View style={styles.todayProgressVisual}>
-                          <View style={styles.todayProgressTrack}>
-                            <View
-                              style={[
-                                styles.todayProgressFill,
-                                {
-                                  backgroundColor: progressColor,
-                                  width: `${Math.max(2, item.progress * 100)}%`,
-                                },
-                              ]}
-                            />
-                          </View>
-                          <View style={styles.todayProgressPercentBox}>
-                            <Text style={styles.todayProgressText}>
-                              {Math.round(item.progress * 100)}%
-                            </Text>
-                          </View>
-                        </View>
-                      ) : null}
                     </View>
-                  );
-                })}
-              </View>
-            ) : null}
-          </LinearGradient>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
         </AnimatedPressable>
 
         <View style={styles.sectionHeader}>
@@ -713,69 +699,64 @@ export default function HomeScreen() {
               <Text style={styles.emptyText}>{t('home.noHistory')}</Text>
             </View>
           ) : (
-            groupedPreviousRecords.map((group) => (
-              <View key={group.dayKey} style={styles.recordGroup}>
-                <View style={styles.recordGroupHeader}>
-                  <View style={styles.recordGroupDot} />
-                  <Text style={styles.recordGroupTitle}>
-                    {group.dayKey === currentDayKey ? t('home.today') : formatDayLabel(group.dayKey)}
-                  </Text>
-                  <Text style={styles.recordGroupDate}>{formatWeekdayLabel(group.dayKey)}</Text>
-                </View>
-                <View style={styles.recordGroupRows}>
-                  {group.records.map((record) => {
-                    const recordColor = getRecordColor(record);
-                    const recordMinutesColor = getRecordMinutesColor(record.minutes_since_start);
+            previousRecords.map((record) => {
+              const recordColor = getRecordColor(record);
+              const recordMinutesColor = getRecordMinutesColor(record.minutes_since_start);
 
-                    return (
-                      <AnimatedPressable
-                        accessibilityLabel={t('stats.dayRecordTitle', {
-                          day: formatDayLabel(record.day_key),
-                        })}
-                        accessibilityRole="button"
-                        key={record.id}
-                        onPress={() => handleOpenDayRecords(record.day_key)}
-                        pressedScale={0.985}
-                        style={styles.recordRow}
-                      >
-                        <RecentRecordTypeIcon
-                          backgroundColor={getRecordTypeSoftColor(recordColor)}
-                          blockStyle={styles.recordTypeIconBlock}
-                          circleStyle={styles.recordTypeIconCircle}
-                          color={recordColor}
-                          iconName={getRecordIconName(record)}
-                        />
-                        <View style={styles.recordMain}>
-                          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordTypeLabel}>
-                            {getDayRecordTypeName(record, t)}
-                          </Text>
-                          <Text style={styles.recordTime}>
-                            {formatRecordRange(record, startTimeMinutes)}
-                          </Text>
-                        </View>
-                        <View style={styles.recordValueRow}>
-                          {recordUnit === 'minutes' ? (
-                            <>
-                              <Text style={[styles.recordMinutes, { color: recordMinutesColor }]}>
-                                {record.minutes_since_start}
-                              </Text>
-                              <Text style={styles.recordUnitText}>{t('date.minutesFullUnit')}</Text>
-                            </>
-                          ) : (
-                            <Text style={[styles.recordMinutes, { color: recordMinutesColor }]}>
-                              {formatDuration(record.minutes_since_start, recordUnit)}
-                            </Text>
-                          )}
-                          <View style={styles.recordArrowButton}>
-                            <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
-                          </View>
-                        </View>
-                      </AnimatedPressable>
-                    );
+              return (
+                <AnimatedPressable
+                  accessibilityLabel={t('stats.dayRecordTitle', {
+                    day: formatDayLabel(record.day_key),
                   })}
-                </View>
-              </View>
-            ))
+                  accessibilityRole="button"
+                  key={record.id}
+                  onPress={() => handleOpenDayRecords(record.day_key)}
+                  pressedScale={0.985}
+                  style={styles.recordRow}
+                >
+                  <RecentRecordTypeIcon
+                    backgroundColor={getRecordTypeSoftColor(recordColor)}
+                    blockStyle={styles.recordTypeIconBlock}
+                    circleStyle={styles.recordTypeIconCircle}
+                    color={recordColor}
+                    iconName={getRecordIconName(record)}
+                  />
+                  <View style={styles.recordMain}>
+                    <Text ellipsizeMode="tail" numberOfLines={1} style={styles.recordTypeLabel}>
+                      {getDayRecordTypeName(record, t)}
+                    </Text>
+                    <Text style={styles.recordTime}>
+                      {formatRecordRange(record, startTimeMinutes)}
+                    </Text>
+                  </View>
+                  <View style={styles.recordDateCenter}>
+                    <Text numberOfLines={1} style={styles.recordDateText}>
+                      {record.day_key === currentDayKey ? t('home.today') : formatDayLabel(record.day_key)}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.recordWeekdayText}>
+                      {formatWeekdayLabel(record.day_key)}
+                    </Text>
+                  </View>
+                  <View style={styles.recordValueRow}>
+                    {recordUnit === 'minutes' ? (
+                      <>
+                        <Text style={[styles.recordMinutes, { color: recordMinutesColor }]}>
+                          {record.minutes_since_start}
+                        </Text>
+                        <Text style={styles.recordUnitText}>{t('date.minutesFullUnit')}</Text>
+                      </>
+                    ) : (
+                      <Text style={[styles.recordMinutes, { color: recordMinutesColor }]}>
+                        {formatDuration(record.minutes_since_start, recordUnit)}
+                      </Text>
+                    )}
+                    <View style={styles.recordArrowButton}>
+                      <Ionicons color={colors.mutedSubtle} name="chevron-forward" size={18} />
+                    </View>
+                  </View>
+                </AnimatedPressable>
+              );
+            })
           )}
         </View>
       </ScrollView>
@@ -963,14 +944,17 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   todayPanelShell: {
     borderRadius: radius.xl,
     marginBottom: spacing.lg,
+    backgroundColor: colors.surface,
     ...shadow,
     overflow: 'hidden',
   },
   todayPanel: {
-    minHeight: 196,
+    minHeight: 160,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.lg,
     gap: spacing.md,
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
   },
   todayPanelTop: {
     width: '100%',
@@ -1019,23 +1003,23 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   minutesNumber: {
     color: colors.surface,
-    fontSize: 52,
+    fontSize: 60,
     fontWeight: '900',
     letterSpacing: 0,
-    lineHeight: 58,
+    lineHeight: 66,
   },
   minutesUnit: {
     color: colors.surface,
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '900',
     marginLeft: spacing.sm,
-    marginBottom: 6,
+    marginBottom: 7,
   },
   minutesText: {
     color: colors.surface,
-    fontSize: 34,
+    fontSize: 42,
     fontWeight: '900',
-    lineHeight: 40,
+    lineHeight: 48,
     marginTop: spacing.xs,
   },
   notRecorded: {
@@ -1066,12 +1050,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   todayTimeField: {
     color: colors.surface,
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '800',
   },
   todayTimeSeparator: {
     color: colors.surface,
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '800',
   },
   recordTypePill: {
@@ -1086,23 +1070,31 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   todayProgressBlock: {
     width: '100%',
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.24)',
-    gap: spacing.sm,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+    gap: 1,
   },
   todayTaskProgressRow: {
     minHeight: 24,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
+  },
+  todayProgressIcon: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   todayProgressInfo: {
     flex: 1,
     minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    maxWidth: 88,
+    height: 20,
+    justifyContent: 'center',
   },
   todayGoalRow: {
     flex: 1,
@@ -1112,32 +1104,35 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.xs,
   },
   todayGoalText: {
-    color: colors.surface,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '900',
+    lineHeight: 18,
     flexShrink: 1,
   },
   todayGoalValue: {
-    color: 'rgba(255,255,255,0.82)',
+    color: colors.muted,
     fontSize: 12,
     fontWeight: '900',
+    width: 108,
+    textAlign: 'right',
     flexShrink: 0,
   },
   todayProgressVisual: {
-    width: 132,
-    flexShrink: 0,
+    flex: 1.2,
+    minWidth: 110,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   todayProgressPercentBox: {
-    width: 34,
+    width: 30,
     alignItems: 'flex-end',
     flexShrink: 0,
   },
   todayProgressText: {
-    color: colors.surface,
-    fontSize: 13,
+    color: colors.muted,
+    fontSize: 12,
     fontWeight: '900',
   },
   todayProgressTrack: {
@@ -1145,7 +1140,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     minWidth: 0,
     height: 8,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: colors.border,
     overflow: 'hidden',
   },
   todayProgressFill: {
@@ -1234,7 +1229,11 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     ...typography.sectionTitle,
   },
   recordList: {
-    gap: spacing.sm,
+    gap: 0,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    ...shadow,
   },
   recordGroup: {
     gap: 4,
@@ -1266,13 +1265,12 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: 4,
   },
   recordRow: {
-    minHeight: 58,
+    minHeight: 62,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1303,9 +1301,10 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.sm,
   },
   recordMain: {
-    flex: 1,
+    width: 112,
     minWidth: 0,
     marginLeft: spacing.xs,
+    flexShrink: 1,
   },
   recordDate: {
     color: colors.text,
@@ -1324,8 +1323,27 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
   },
   recordTime: {
     color: colors.textSoft,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
+  },
+  recordDateCenter: {
+    flex: 1,
+    minWidth: 82,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  recordDateText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  recordWeekdayText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   recordMetaRow: {
     flexDirection: 'row',
@@ -1339,6 +1357,8 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     alignItems: 'baseline',
     gap: 3,
     flexShrink: 0,
+    minWidth: 88,
+    justifyContent: 'flex-end',
   },
   recordMinutes: {
     color: colors.info,

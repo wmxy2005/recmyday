@@ -97,7 +97,7 @@ describe('backup file format', () => {
     expect(parsed.recordTypes).toEqual([
       {
         ...recordTypes[0],
-        color: '#635BFF',
+        color: '#417FF5',
         icon_name: 'pricetag-outline',
         target_minutes: null,
       },
@@ -125,7 +125,7 @@ describe('backup file format', () => {
     expect(parsed.recordTypes).toEqual([
       {
         ...recordTypes[0],
-        color: '#635BFF',
+        color: '#417FF5',
         target_minutes: null,
       },
     ]);
@@ -237,7 +237,7 @@ describe('backup file format', () => {
 
     const parsed = parseExportFileData(JSON.stringify(file));
 
-    expect(parsed.recordTypes[0].color).toBe('#635BFF');
+    expect(parsed.recordTypes[0].color).toBe('#417FF5');
   });
 
   it('rejects invalid imported record type target minutes', () => {
