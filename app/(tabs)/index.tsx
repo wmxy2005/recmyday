@@ -38,6 +38,7 @@ import {
   insertSeparateRecord,
   upsertCurrentRecord,
 } from '@/data/database';
+import { useCurrentDayKeyWatcher } from '@/hooks/useCurrentDayKeyWatcher';
 import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { componentSizes, radius, spacing, typography, useAppTheme } from '@/theme';
 import {
@@ -247,6 +248,12 @@ export default function HomeScreen() {
       const showLoading = !hasLoadedRef.current;
       hasLoadedRef.current = true;
       loadData(showLoading);
+    }, [loadData]),
+  );
+
+  useCurrentDayKeyWatcher(
+    useCallback(() => {
+      loadData(false);
     }, [loadData]),
   );
 
@@ -1128,7 +1135,7 @@ const makeStyles = (theme: ReturnType<typeof useAppTheme>) => {
     gap: spacing.xs,
   },
   todayProgressPercentBox: {
-    width: 30,
+    minWidth: 30,
     alignItems: 'flex-end',
     flexShrink: 0,
   },

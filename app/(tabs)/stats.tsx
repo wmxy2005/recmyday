@@ -35,6 +35,7 @@ import {
   maxRecordTypeTargetMinutes,
   updateRecordTypeTargetMinutes,
 } from '@/data/database';
+import { useCurrentDayKeyWatcher } from '@/hooks/useCurrentDayKeyWatcher';
 import { readRecordSettings } from '@/hooks/useRecordSettings';
 import { componentSizes, radius, spacing, typography, useAppTheme } from '@/theme';
 import {
@@ -66,6 +67,16 @@ const filterTypeGridBreakpoints = [
 ] as const;
 let sessionSelectedRecordTypeIds: string[] | null = null;
 
+function isSameCalendarMonth(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
+}
+
+function getDateFromDayKey(dayKey: string) {
+  const [year, month, day] = dayKey.split('-').map(Number);
+
+  return new Date(year, month - 1, day);
+}
+
 function getFilterTypeGridColumns(width: number) {
   return (
     filterTypeGridBreakpoints.find((breakpoint) => width >= breakpoint.minWidth)?.columns ??
@@ -81,6 +92,7 @@ export default function StatsScreen() {
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const db = useSQLiteContext();
   const [monthDate, setMonthDate] = useState(() => new Date());
+  const [todayKey, setTodayKey] = useState(() => formatDayKey(new Date()));
   const [records, setRecords] = useState<DayRecord[]>([]);
   const [recordTypes, setRecordTypes] = useState<RecordType[]>([]);
   const [selectedRecordTypeIds, setSelectedRecordTypeIds] = useState<string[] | null>(
@@ -132,13 +144,13 @@ export default function StatsScreen() {
   const canShowTargetEditorForm =
     targetEditorMode === 'edit' ? Boolean(targetEditorRecordType) : untargetedRecordTypes.length > 0;
 
-  const loadData = useCallback(async (showLoading = false) => {
+  const loadData = useCallback(async (showLoading = false, targetMonthDate = monthDate) => {
     if (showLoading) {
       setIsLoading(true);
     }
 
     const [monthRecords, nextRecordTypes, settings] = await Promise.all([
-      getMonthRecords(db, monthDate),
+      getMonthRecords(db, targetMonthDate),
       getRecordTypes(db),
       readRecordSettings(db),
     ]);
@@ -167,6 +179,29 @@ export default function StatsScreen() {
       hasLoadedRef.current = true;
       loadData(showLoading);
     }, [loadData]),
+  );
+
+  useCurrentDayKeyWatcher(
+    useCallback(
+      (nextTodayKey) => {
+        const now = new Date();
+        const wasViewingCurrentMonth = isSameCalendarMonth(
+          monthDate,
+          getDateFromDayKey(todayKey),
+        );
+
+        setTodayKey(nextTodayKey);
+
+        if (wasViewingCurrentMonth) {
+          setMonthDate(now);
+          loadData(false, now);
+          return;
+        }
+
+        loadData(false);
+      },
+      [loadData, monthDate, todayKey],
+    ),
   );
 
   const isFilteringRecordTypes = selectedRecordTypeIds !== null;
@@ -258,7 +293,6 @@ export default function StatsScreen() {
 
     return weeks;
   }, [cells]);
-  const todayKey = useMemo(() => formatDayKey(new Date()), []);
   const chartRecords = useMemo(() => {
     const latestRecords = filteredRecords.slice(-7);
     const maxMinutes = Math.max(...latestRecords.map((record) => record.minutes_since_start), 1);
