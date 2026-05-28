@@ -2,9 +2,9 @@
 
 ## Business Rules
 
-- `day_key` follows the natural calendar date. The configured start time never moves a record to a different day.
-- Start time only changes the computed `minutes_since_start`.
-- If the current time is before the configured start time, `minutes_since_start` is clamped to `0`.
+- `day_key` follows the natural calendar date. The configured timer start time never moves a record to a different day.
+- Timer start time only changes the computed `minutes_since_start`.
+- If the current time is before the configured timer start time, `minutes_since_start` is clamped to `0`.
 - Single-record mode (`separate_record_enabled = true`, shown as `单独记录=是`) updates the latest record for the natural day and does not show the type picker; it uses the configured default record type.
 - Separate-record mode (`separate_record_enabled = false`, shown as `单独记录=否`) appends duration records. Starting a timer opens the record type picker first; after a type is selected, the timer starts and the floating button label shows the selected type. Ending the timer saves the duration with that selected type.
 - Every record has a record type. Built-in types are seeded by migration and cannot be edited, deleted or reordered.

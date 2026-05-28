@@ -93,9 +93,9 @@ export default {
   settings: {
     title: 'Settings',
     currentStartTime: 'Starts at {{time}}',
-    dayStart: 'Day starts at',
+    dayStart: 'Timer starts at',
     chooseStartTime: 'Start time',
-    startTimeDescription: 'Sets when each day begins.',
+    startTimeDescription: 'Sets when timer counting begins.',
     recordUnit: 'Unit',
     chooseRecordUnit: 'Record unit',
     minutesUnitDescription: 'Use minutes.',

@@ -93,9 +93,9 @@ export default {
   settings: {
     title: '设定',
     currentStartTime: '当前起始时间 {{time}}',
-    dayStart: '一天开始',
+    dayStart: '计时开始',
     chooseStartTime: '选择开始时间',
-    startTimeDescription: '设置每天记录的开始时间点',
+    startTimeDescription: '设置每天计时的开始时间点',
     recordUnit: '记录单位',
     chooseRecordUnit: '选择记录单位',
     minutesUnitDescription: '以分钟为单位记录时间',
